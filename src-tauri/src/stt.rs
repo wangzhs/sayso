@@ -1,10 +1,10 @@
 /// STT (Speech-to-Text) client.
 ///
 /// - Uses OpenAI-compatible /audio/transcriptions endpoint
-/// - 5-second timeout
+/// - 120-second timeout (2× max recording length of 60s, to account for upload + transcription)
 /// - Sends WAV audio as multipart form data
 /// - Error handling per spec:
-///   - Network timeout (>5s) → SttTimeout
+///   - Network timeout (>120s) → SttTimeout
 ///   - Non-200 response → SttApiError(status)
 ///   - Empty result → SttNoSpeech (caller skips silently)
 ///   - Malformed JSON → SttMalformedResponse
@@ -16,7 +16,7 @@ use log::{debug, info, warn};
 use crate::config::SttConfig;
 use crate::error::SaysoError;
 
-const STT_TIMEOUT_SECS: u64 = 5;
+const STT_TIMEOUT_SECS: u64 = 120; // 2× max recording length; must be large enough for upload + transcription
 
 #[derive(Deserialize, Debug)]
 struct TranscriptionResponse {

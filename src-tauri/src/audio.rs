@@ -21,6 +21,11 @@ const MIN_DURATION_SECS: f64 = 0.3;
 pub struct AudioRecorder {
     samples: Arc<Mutex<Vec<i16>>>,
     start_time: Option<Instant>,
+    /// Actual sample rate used by the recording device (set in start()).
+    sample_rate: u32,
+    /// Number of channels on the recording device (set in start()).
+    /// Multi-channel audio is downmixed to mono in the callback.
+    channels: u16,
 }
 
 impl AudioRecorder {
@@ -28,6 +33,8 @@ impl AudioRecorder {
         Self {
             samples: Arc::new(Mutex::new(Vec::new())),
             start_time: None,
+            sample_rate: TARGET_SAMPLE_RATE,
+            channels: 1,
         }
     }
 
@@ -47,12 +54,17 @@ impl AudioRecorder {
             config.channels
         );
 
+        // Store actual device sample rate and channel count for correct WAV encoding
+        self.sample_rate = config.sample_rate.0;
+        self.channels = config.channels;
+
         let samples = Arc::clone(&self.samples);
         samples.lock().unwrap().clear();
         self.start_time = Some(Instant::now());
 
         let start = Instant::now();
         let samples_for_stream = Arc::clone(&samples);
+        let num_channels = config.channels as usize;
 
         let err_fn = |e: cpal::StreamError| {
             warn!("Audio stream error: {}", e);
@@ -67,10 +79,23 @@ impl AudioRecorder {
                         return;
                     }
                     let mut buf = samples_for_stream.lock().unwrap();
-                    // Convert f32 PCM → i16, downsample if needed (simple pass for now)
-                    for &sample in data {
-                        let s = (sample * 32767.0).clamp(-32768.0, 32767.0) as i16;
-                        buf.push(s);
+                    if num_channels == 1 {
+                        // Mono: direct conversion f32 → i16
+                        for &sample in data {
+                            let s = (sample * 32767.0).clamp(-32768.0, 32767.0) as i16;
+                            buf.push(s);
+                        }
+                    } else {
+                        // Multi-channel: downmix to mono by averaging all channels per frame
+                        let mut i = 0;
+                        while i < data.len() {
+                            let end = (i + num_channels).min(data.len());
+                            let chunk = &data[i..end];
+                            let avg = chunk.iter().sum::<f32>() / chunk.len() as f32;
+                            let s = (avg * 32767.0).clamp(-32768.0, 32767.0) as i16;
+                            buf.push(s);
+                            i += num_channels;
+                        }
                     }
                 },
                 err_fn,
@@ -84,18 +109,20 @@ impl AudioRecorder {
         Ok(RecordingHandle { _stream: stream })
     }
 
-    /// Call after stopping the RecordingHandle. Returns WAV bytes.
-    pub fn finish(&self, actual_sample_rate: u32) -> Result<Vec<u8>, SaysoError> {
+    /// Call after stopping the RecordingHandle. Returns WAV bytes encoded at 16kHz.
+    pub fn finish(&self) -> Result<Vec<u8>, SaysoError> {
         let samples = self.samples.lock().unwrap().clone();
-        let duration_secs = samples.len() as f64 / actual_sample_rate as f64;
+        let actual_rate = self.sample_rate;
+        let duration_secs = samples.len() as f64 / actual_rate as f64;
 
         if duration_secs < MIN_DURATION_SECS {
             return Err(SaysoError::RecordingTooShort);
         }
 
-        // Resample to 16kHz if needed (linear interpolation)
-        let resampled = if actual_sample_rate != TARGET_SAMPLE_RATE {
-            resample(&samples, actual_sample_rate, TARGET_SAMPLE_RATE)
+        // Resample to 16kHz if the device ran at a different rate (e.g., 44100/48000 Hz)
+        let resampled = if actual_rate != TARGET_SAMPLE_RATE {
+            debug!("Resampling {}Hz → {}Hz ({} samples)", actual_rate, TARGET_SAMPLE_RATE, samples.len());
+            resample(&samples, actual_rate, TARGET_SAMPLE_RATE)
         } else {
             samples.clone()
         };
@@ -133,17 +160,22 @@ fn choose_config(device: &cpal::Device) -> Result<StreamConfig, SaysoError> {
         .supported_input_configs()
         .map_err(|e| SaysoError::AudioRecordingFailed(e.to_string()))?;
 
-    // Prefer f32 mono at or near 16kHz
-    let mut best: Option<cpal::SupportedStreamConfigRange> = None;
+    // Priority: f32 mono > f32 any channels
+    // (i16/u16 not yet supported — would require a separate build_input_stream branch)
+    let mut best_mono: Option<cpal::SupportedStreamConfigRange> = None;
+    let mut best_any: Option<cpal::SupportedStreamConfigRange> = None;
     for cfg in supported {
         if cfg.sample_format() == SampleFormat::F32 {
-            if best.is_none() {
-                best = Some(cfg.clone());
-            } else if cfg.channels() == 1 {
-                best = Some(cfg);
+            if cfg.channels() == 1 {
+                best_mono = Some(cfg.clone());
+            }
+            if best_any.is_none() {
+                best_any = Some(cfg);
             }
         }
     }
+
+    let best = best_mono.or(best_any);
 
     if let Some(cfg) = best {
         let rate = if cfg.min_sample_rate().0 <= TARGET_SAMPLE_RATE
@@ -155,7 +187,10 @@ fn choose_config(device: &cpal::Device) -> Result<StreamConfig, SaysoError> {
         };
         Ok(cfg.with_sample_rate(rate).into())
     } else {
-        Err(SaysoError::AudioDeviceNotFound)
+        Err(SaysoError::AudioRecordingFailed(
+            "No supported f32 audio input format found. \
+             Try a different microphone or check System Preferences → Sound → Input.".into(),
+        ))
     }
 }
 

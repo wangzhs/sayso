@@ -130,8 +130,15 @@ impl RecordingFsm {
         self.transition(FsmState::Error(msg)).is_ok()
     }
 
+    /// Force the FSM back to Idle regardless of current state.
+    ///
+    /// Unlike `transition()`, reset() always succeeds — it is an escape hatch
+    /// used at the end of every pipeline branch (including Mode C where no
+    /// Injecting/Done steps occur).
     pub fn reset(&self) {
-        let _ = self.transition(FsmState::Idle);
+        let mut state = self.state.lock().unwrap();
+        debug!("FSM: {} → IDLE (reset)", *state);
+        *state = FsmState::Idle;
     }
 }
 

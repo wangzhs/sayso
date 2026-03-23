@@ -26,7 +26,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
     },
     "trayIcon": {
       "iconPath": "icons/tray.png",
@@ -48,19 +48,5 @@
       "infoPlist": "./Info.plist"
     }
   },
-  "plugins": {
-    "global-shortcut": {},
-    "log": {
-      "level": "info",
-      "targets": [
-        {
-          "kind": "Stdout"
-        },
-        {
-          "kind": "LogDir",
-          "fileName": "sayso.log"
-        }
-      ]
-    }
-  }
+  "plugins": {}
 }

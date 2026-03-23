@@ -10,9 +10,6 @@
     "global-shortcut:allow-is-registered",
     "global-shortcut:allow-register-all",
     "global-shortcut:allow-unregister-all",
-    "shell:allow-execute",
-    "shell:allow-kill",
-    "shell:allow-stdin-write",
     "log:allow-log",
     "notification:default"
   ]

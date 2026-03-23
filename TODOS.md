@@ -161,3 +161,39 @@ fn test_clipboard_inject() {
 - Unit tests: 80%+
 - Integration tests: 核心流程（快捷键→录音→STT→注入）
 - E2E tests: 可延后到 v1.1
+
+---
+
+## Codex 对抗审查修复记录（2026-03-23）
+
+### 已修复
+
+| # | 级别 | 问题 | 修复说明 |
+|---|------|------|----------|
+| 1 | P1 | FSM 错误路径不发送状态事件到前端 | `run_pipeline` 所有错误路径现在都发 `emit_fsm_state` → Error/Idle |
+| 2 | P1 | 多声道音频不降混为单声道 | audio.rs 回调中按 channels 数平均所有声道 |
+| 3 | P1 | 命令超时后子进程不被杀死 | executor.rs 改用 `tokio::process::Command` + `kill_on_drop(true)` |
+| 4 | P1 | 安全过滤器运行在原始语音文本上而非解析后的命令 | main.rs 中 LLM 安全检查移到 intent 解析之后，运行在 `intent.command` 上 |
+| 5 | P1 | 注入前无焦点完整性检查（`InjectorFocusLost` 从未使用） | 热键释放时捕获当前窗口，注入前对比，焦点变化返回 `InjectorFocusLost` |
+| 6 | P2 | STT 超时仅 5 秒，但录音可长达 60 秒 | 改为 120 秒（2× 最大录音时长） |
+| 7 | P2 | `split_whitespace` 不支持带引号的参数（如路径含空格） | 改用 `shell-words` crate 解析参数 |
+| 8 | P2 | Finder 启动的 app 缺少 Homebrew/开发工具 PATH | executor.rs 自动补全 `/opt/homebrew/bin` 等常见路径 |
+| 9 | P2 | 渲染进程拥有 `shell:allow-execute/kill/stdin-write` + CSP=null | 从 capabilities/default.json 移除 shell 权限；tauri.conf.json 加入严格 CSP |
+| 10 | P2 | 音频设备格式不支持时报错"设备未找到" | 改为明确报错"不支持的 f32 音频格式" |
+
+### 已验证（Codex 指出但代码已正确处理）
+
+| # | 级别 | Codex 的描述 | 实际情况 |
+|---|------|-------------|---------|
+| 1 | P1 | `reset()` 只允许 Done/Error → Idle，Mode C 会死锁 | `reset()` 是无条件的，不受状态机守卫限制；FSM 测试覆盖此路径 |
+| 2 | P1 | config.json 损坏会触发 panic | `load_all()` 失败时 `unwrap_or_else` 回退到默认配置，不 panic |
+
+### 已确认为设计取舍（不修改）
+
+| # | 级别 | 问题 | 取舍说明 |
+|---|------|------|---------|
+| 1 | P2 | Accessibility 权限无 preflight 检查 | Enigo + macOS entitlement 模型会在首次调用时自动触发系统权限弹窗；后续版本可加 `AXIsProcessTrusted()` 预检 |
+| 2 | P2 | 剪贴板 fallback 不恢复原内容 | 设计决策（见实现注意事项 #6）：避免数据竞争风险 |
+| 3 | P2 | `unsafe impl Send for RecordingHandle` | 有注释说明：Mutex 保证独占访问，cpal 音频线程由 OS 管理，实际安全 |
+| 4 | P2 | 设置页"测试连接"测的是已保存配置而非未保存字段 | UX 问题，记入 TODO 待 Phase 3 Settings UI 改进时修复 |
+| 5 | P2 | i16/u16 格式设备不支持 | 已改善错误信息；完整 i16/u16 支持需要重构 build_input_stream，延后 |

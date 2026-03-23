@@ -126,13 +126,17 @@ async fn get_fsm_state(state: State<'_, Arc<AppState>>) -> Result<String, SaysoE
 ///
 /// Mode A: record → STT → inject text
 /// Mode B: record → STT → inject text → press Enter
-/// Mode C: record → STT → LLM intent → safety check → execute (Phase 2)
+/// Mode C: record → STT → LLM intent → safety check (on parsed command) → execute
+///
+/// `captured_focus`: the frontmost app bundle ID captured at hotkey-release time.
+/// For Modes A/B, injection is aborted with a warning if focus changed during STT.
 async fn run_pipeline(
     app: AppHandle,
     state: Arc<AppState>,
     mode: char,
     wav_bytes: Vec<u8>,
     speaking_secs: f64,
+    captured_focus: Option<String>,
 ) {
     let cfg = state.config.config();
 
@@ -140,12 +144,15 @@ async fn run_pipeline(
     let stt_config = match cfg.stt {
         Some(ref c) => c.clone(),
         None => {
+            state.fsm.on_stt_error("STT not configured".to_string());
+            emit_fsm_state(&app, state.fsm.state());
             emit_toast(
                 &app,
                 "error",
                 "STT not configured — open Preferences to set up your API",
             );
             state.fsm.reset();
+            emit_fsm_state(&app, FsmState::Idle);
             return;
         }
     };
@@ -161,79 +168,52 @@ async fn run_pipeline(
         Ok(None) => {
             // Empty result — silent skip
             state.fsm.reset();
+            emit_fsm_state(&app, FsmState::Idle);
             return;
         }
         Err(SaysoError::SttTimeout) => {
             state.fsm.on_stt_error("Connection timeout".to_string());
+            emit_fsm_state(&app, state.fsm.state());
             emit_toast(&app, "error", "Connection timeout — please check your network");
             state.fsm.reset();
+            emit_fsm_state(&app, FsmState::Idle);
             return;
         }
         Err(SaysoError::SttApiError(code)) => {
             state.fsm.on_stt_error(format!("API error {}", code));
+            emit_fsm_state(&app, state.fsm.state());
             emit_toast(&app, "error", &format!("Recognition failed ({})", code));
             state.fsm.reset();
+            emit_fsm_state(&app, FsmState::Idle);
             return;
         }
         Err(SaysoError::SttMalformedResponse) => {
             state.fsm.on_stt_error("Malformed response".to_string());
+            emit_fsm_state(&app, state.fsm.state());
             emit_toast(&app, "error", "Response parse error (malformed response)");
             state.fsm.reset();
+            emit_fsm_state(&app, FsmState::Idle);
             return;
         }
         Err(e) => {
             state.fsm.on_stt_error(e.to_string());
+            emit_fsm_state(&app, state.fsm.state());
             emit_toast(&app, "error", &e.to_string());
             state.fsm.reset();
+            emit_fsm_state(&app, FsmState::Idle);
             return;
         }
     };
 
     // ── Mode C: CommandEngine ──
     if mode == 'c' {
-        // Layer 1: rule-based safety filter (fast O(1))
-        let verdict = safety::rule_filter(&text);
-        match verdict {
-            Some(v) if !v.safe => {
+        // Fast rule-filter on raw speech text — catch definite blocks early
+        if let Some(v) = safety::rule_filter(&text) {
+            if !v.safe {
                 emit_toast(&app, "warning", &format!("Rejected: {}", v.reason));
                 state.fsm.reset();
+                emit_fsm_state(&app, FsmState::Idle);
                 return;
-            }
-            Some(_) => {
-                // rule_filter says safe — skip LLM safety layer
-            }
-            None => {
-                // Gray zone: rule filter inconclusive → LLM safety check (fail-closed)
-                let llm_config = match cfg.llm {
-                    Some(ref c) => c.clone(),
-                    None => {
-                        emit_toast(&app, "error", "Rejected: safety check unavailable — LLM not configured");
-                        state.fsm.reset();
-                        return;
-                    }
-                };
-                let llm_key = state.config.llm_api_key();
-                match safety::llm_safety_check(
-                    &state.llm_client,
-                    &llm_config,
-                    llm_key.as_deref(),
-                    &text,
-                )
-                .await
-                {
-                    Ok(v) if !v.safe => {
-                        emit_toast(&app, "warning", &format!("Rejected: {}", v.reason));
-                        state.fsm.reset();
-                        return;
-                    }
-                    Ok(_) => {}
-                    Err(_) => {
-                        // Fail-closed: LLM unavailable → reject
-                        emit_toast(&app, "error", "Rejected: safety check unavailable");
-                        state.fsm.reset();
-                        return;
-                    }
-                }
             }
         }
 
@@ -243,6 +223,7 @@ async fn run_pipeline(
             None => {
                 emit_toast(&app, "error", "LLM not configured — open Preferences to set up your LLM API");
                 state.fsm.reset();
+                emit_fsm_state(&app, FsmState::Idle);
                 return;
             }
         };
@@ -260,11 +241,13 @@ async fn run_pipeline(
             Err(SaysoError::LlmTimeout) => {
                 emit_toast(&app, "error", "LLM timeout — please check your network");
                 state.fsm.reset();
+                emit_fsm_state(&app, FsmState::Idle);
                 return;
             }
             Err(e) => {
                 emit_toast(&app, "error", &format!("Intent parse failed: {}", e));
                 state.fsm.reset();
+                emit_fsm_state(&app, FsmState::Idle);
                 return;
             }
         };
@@ -272,15 +255,48 @@ async fn run_pipeline(
         if intent.command.is_empty() {
             emit_toast(&app, "warning", &format!("Unclear intent: {}", intent.description));
             state.fsm.reset();
+            emit_fsm_state(&app, FsmState::Idle);
             return;
         }
 
-        // Second rule-filter pass on the parsed command (defense-in-depth)
-        if let Some(v) = safety::rule_filter(&intent.command) {
-            if !v.safe {
+        // Safety check on the PARSED COMMAND — not raw speech.
+        // This prevents prompt-injection in the intent parse from bypassing safety.
+        // Rule filter first (fast), then LLM semantic check for gray-zone commands.
+        match safety::rule_filter(&intent.command) {
+            Some(v) if !v.safe => {
                 emit_toast(&app, "warning", &format!("Rejected: {}", v.reason));
                 state.fsm.reset();
+                emit_fsm_state(&app, FsmState::Idle);
                 return;
+            }
+            Some(_) => {
+                // Explicitly allowed by rule filter — skip LLM safety layer
+            }
+            None => {
+                // Gray zone: run LLM safety check on the actual parsed command
+                match safety::llm_safety_check(
+                    &state.llm_client,
+                    &llm_config,
+                    llm_key.as_deref(),
+                    &intent.command,
+                )
+                .await
+                {
+                    Ok(v) if !v.safe => {
+                        emit_toast(&app, "warning", &format!("Rejected: {}", v.reason));
+                        state.fsm.reset();
+                        emit_fsm_state(&app, FsmState::Idle);
+                        return;
+                    }
+                    Ok(_) => {}
+                    Err(_) => {
+                        // Fail-closed: LLM unavailable → reject
+                        emit_toast(&app, "error", "Rejected: safety check unavailable");
+                        state.fsm.reset();
+                        emit_fsm_state(&app, FsmState::Idle);
+                        return;
+                    }
+                }
             }
         }
 
@@ -303,6 +319,7 @@ async fn run_pipeline(
         }
 
         state.fsm.reset();
+        emit_fsm_state(&app, FsmState::Idle);
         return;
     }
 
@@ -334,10 +351,11 @@ async fn run_pipeline(
     state.fsm.on_stt_result();
     emit_fsm_state(&app, FsmState::Injecting);
 
+    let focus = captured_focus.as_deref();
     let inject_result = if mode == 'b' {
-        injector::inject_text_and_send(&final_text)
+        injector::inject_text_and_send(&final_text, focus)
     } else {
-        injector::inject_text(&final_text)
+        injector::inject_text(&final_text, focus)
     };
 
     match inject_result {
@@ -345,13 +363,22 @@ async fn run_pipeline(
             state.fsm.on_inject_done();
             state.stats.record_transcription(speaking_secs, &final_text);
             emit_fsm_state(&app, FsmState::Done);
-            // Auto-reset to IDLE
             state.fsm.reset();
+            emit_fsm_state(&app, FsmState::Idle);
+        }
+        Err(SaysoError::InjectorFocusLost) => {
+            state.fsm.on_inject_error("Focus changed".to_string());
+            emit_fsm_state(&app, state.fsm.state());
+            emit_toast(&app, "warning", "Focus changed — text was NOT injected");
+            state.fsm.reset();
+            emit_fsm_state(&app, FsmState::Idle);
         }
         Err(e) => {
             state.fsm.on_inject_error(e.to_string());
+            emit_fsm_state(&app, state.fsm.state());
             emit_toast(&app, "error", &e.to_string());
             state.fsm.reset();
+            emit_fsm_state(&app, FsmState::Idle);
         }
     }
 }
@@ -392,9 +419,7 @@ fn on_hotkey_release(app: &AppHandle, state: Arc<AppState>, mode: char) {
     let recorder = state.recorder.lock().unwrap();
     let speaking_secs = recorder.elapsed().as_secs_f64();
 
-    // Get the native sample rate from the recorder
-    // For simplicity, we assume 16kHz after resampling
-    let wav_result = recorder.finish(16_000);
+    let wav_result = recorder.finish();
     drop(recorder);
 
     match wav_result {
@@ -407,11 +432,14 @@ fn on_hotkey_release(app: &AppHandle, state: Arc<AppState>, mode: char) {
             state.fsm.reset();
         }
         Ok(wav_bytes) => {
+            // Capture the frontmost app now (before async STT delay).
+            // Passed to run_pipeline so injection can verify focus hasn't changed.
+            let focus = injector::capture_focus();
             emit_fsm_state(app, FsmState::SttWaiting);
             let app_clone = app.clone();
             let state_clone = Arc::clone(&state);
             tokio::spawn(async move {
-                run_pipeline(app_clone, state_clone, mode, wav_bytes, speaking_secs).await;
+                run_pipeline(app_clone, state_clone, mode, wav_bytes, speaking_secs, focus).await;
             });
         }
     }
@@ -435,7 +463,6 @@ fn main() {
             .level(log::LevelFilter::Info)
             .build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
-        .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             // Load config + API keys into memory
@@ -473,6 +500,14 @@ fn main() {
                         if let Some(win) = app.get_webview_window("main") {
                             let _ = win.show();
                             let _ = win.set_focus();
+                            let _ = win.emit("navigate", "preferences");
+                        }
+                    }
+                    "stats" => {
+                        if let Some(win) = app.get_webview_window("main") {
+                            let _ = win.show();
+                            let _ = win.set_focus();
+                            let _ = win.emit("navigate", "statistics");
                         }
                     }
                     _ => {}

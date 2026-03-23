@@ -84,20 +84,11 @@ pub fn rule_filter(command: &str) -> Option<SafetyVerdict> {
         }
     }
 
-    // ── Definite allows ────────────────────────────────────────────────────
-    let safe_prefixes = [
-        "ls ", "ls\n", "cat ", "pwd", "echo ", "grep ",
-        "find ", "open ", "start ", "xdg-open ",
-        "git status", "git log", "git diff", "git branch",
-        "ps ", "top ", "htop", "cd ", "mkdir ",
-    ];
-    for prefix in &safe_prefixes {
-        if cmd_lower.starts_with(prefix) || cmd_lower == prefix.trim() {
-            return Some(SafetyVerdict::safe("read-only or safe operation"));
-        }
-    }
-
-    // Gray zone — let LLM decide
+    // Gray zone — let LLM decide.
+    // NOTE: There is intentionally no "definite allows" list here.
+    // A prefix-based allowlist (e.g. "find " → safe) created a bypass where
+    // destructive flags like `find . -name "*.log" -delete` passed all checks.
+    // Every non-explicitly-blocked command now goes to the LLM safety layer.
     None
 }
 
@@ -207,19 +198,27 @@ mod tests {
     }
 
     #[test]
-    fn test_safe_commands_allowed() {
-        assert!(rule_filter("ls -la").unwrap().safe);
-        assert!(rule_filter("git status").unwrap().safe);
-        assert!(rule_filter("git log --oneline -10").unwrap().safe);
-        assert!(rule_filter("pwd").unwrap().safe);
-    }
-
-    #[test]
     fn test_gray_zone_returns_none() {
-        // These should go to LLM layer
+        // All non-explicitly-blocked commands go to the LLM layer —
+        // including previously "safe" prefixes like ls, find, cat, git, pwd.
+        // This prevents prefix-based bypasses (e.g. `find . -name "*.log" -delete`).
+        assert!(rule_filter("ls -la").is_none());
+        assert!(rule_filter("git status").is_none());
+        assert!(rule_filter("git log --oneline -10").is_none());
+        assert!(rule_filter("pwd").is_none());
+        assert!(rule_filter("find . -name '*.log'").is_none());
         assert!(rule_filter("pip install requests").is_none());
         assert!(rule_filter("git commit -m 'fix'").is_none());
         assert!(rule_filter("cp file.txt backup.txt").is_none());
+    }
+
+    #[test]
+    fn test_find_delete_not_bypassed() {
+        // Previously these would have been marked safe via the "find " prefix allow-list.
+        // Now they go to the LLM layer instead of being silently allowed.
+        assert!(rule_filter("find . -name '*.log' -delete").is_none());
+        assert!(rule_filter("find ~ -name '*.pem' -delete").is_none());
+        assert!(rule_filter("find . -name '.env' -exec rm -f {} \\;").is_none());
     }
 
     #[test]

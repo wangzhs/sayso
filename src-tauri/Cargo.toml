@@ -19,7 +19,6 @@ tauri-build = { version = "2", features = [] }
 # Tauri v2 core
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-global-shortcut = "2"
-tauri-plugin-shell = "2"
 tauri-plugin-notification = "2"
 
 # Async runtime
@@ -52,6 +51,9 @@ thiserror = "2"
 
 # Config/data directory resolution (cross-platform)
 dirs = "5"
+
+# Shell argument parsing (handles quotes and escapes safely)
+shell-words = "1"
 
 # Platform-specific: macOS Keychain
 [target.'cfg(target_os = "macos")'.dependencies]

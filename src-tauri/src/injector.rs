@@ -16,8 +16,40 @@ use std::time::Duration;
 use crate::error::SaysoError;
 use crate::config::ELECTRON_APP_BUNDLE_IDS;
 
+/// Capture the bundle ID of the currently focused application (macOS only).
+///
+/// Called at hotkey-release time; the result is passed down to inject_text so
+/// that if the user switches windows during the STT round-trip, injection is
+/// aborted instead of typing into the wrong application.
+pub fn capture_focus() -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        frontmost_bundle_id()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
+
 /// Inject text into the currently focused application.
-pub fn inject_text(text: &str) -> Result<(), SaysoError> {
+///
+/// `expected_focus`: if Some, the current frontmost bundle ID is checked against
+/// this value before injecting. Mismatch returns `InjectorFocusLost`.
+pub fn inject_text(text: &str, expected_focus: Option<&str>) -> Result<(), SaysoError> {
+    // Focus integrity check: if the user switched windows during STT, abort.
+    #[cfg(target_os = "macos")]
+    if let Some(expected) = expected_focus {
+        let current = frontmost_bundle_id();
+        if current.as_deref() != Some(expected) {
+            warn!(
+                "Focus changed before injection: expected {:?}, got {:?}",
+                expected, current
+            );
+            return Err(SaysoError::InjectorFocusLost);
+        }
+    }
+
     // Check if the foreground app needs clipboard fallback
     if needs_clipboard_fallback() {
         info!("Using clipboard fallback injection");
@@ -33,8 +65,10 @@ pub fn inject_text(text: &str) -> Result<(), SaysoError> {
 }
 
 /// Inject text followed by Enter keypress (Mode B).
-pub fn inject_text_and_send(text: &str) -> Result<(), SaysoError> {
-    inject_text(text)?;
+///
+/// `expected_focus`: same focus-integrity contract as `inject_text`.
+pub fn inject_text_and_send(text: &str, expected_focus: Option<&str>) -> Result<(), SaysoError> {
+    inject_text(text, expected_focus)?;
     // Brief delay to ensure text is injected before Enter
     thread::sleep(Duration::from_millis(50));
     press_enter().map_err(|e| SaysoError::InjectorFailed(e.to_string()))

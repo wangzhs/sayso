@@ -187,16 +187,33 @@ fn count_chars(text: &str) -> usize {
     count
 }
 
+fn is_leap(y: u32) -> bool {
+    (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0)
+}
+
 fn chrono_now() -> String {
-    // Simple timestamp without chrono dependency
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    // YYYYMMDD approximation
-    let days = secs / 86400;
-    let y = 1970 + days / 365;
-    format!("{}", y * 10000 + 101) // approximate — good enough for backup filenames
+
+    let mut days = (secs / 86400) as u32;
+    let mut year = 1970u32;
+    loop {
+        let days_in_year = if is_leap(year) { 366 } else { 365 };
+        if days < days_in_year { break; }
+        days -= days_in_year;
+        year += 1;
+    }
+    let month_days: [u32; 12] = [31, if is_leap(year) { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let mut month = 1u32;
+    for &m in &month_days {
+        if days < m { break; }
+        days -= m;
+        month += 1;
+    }
+    let day = days + 1;
+    format!("{}{:02}{:02}", year, month, day)
 }
 
 #[cfg(test)]
