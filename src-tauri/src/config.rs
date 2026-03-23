@@ -75,8 +75,14 @@ pub struct AppConfig {
     pub llm: Option<LlmConfig>,
     pub hotkeys: HotkeyConfig,
     pub voice: VoiceConfig,
+    #[serde(default = "default_ui_language")]
+    pub ui_language: String,
     /// Whether this is the first run (triggers onboarding)
     pub first_run: bool,
+}
+
+fn default_ui_language() -> String {
+    "en".to_string()
 }
 
 impl Default for AppConfig {
@@ -86,6 +92,7 @@ impl Default for AppConfig {
             llm: None,
             hotkeys: HotkeyConfig::default(),
             voice: VoiceConfig::default(),
+            ui_language: default_ui_language(),
             first_run: true,
         }
     }
