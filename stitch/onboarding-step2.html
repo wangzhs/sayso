@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Sayso Onboarding - Step 2: STT Config</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "background": "#131313",
+              "surface-bright": "#393939",
+              "surface-container-high": "#2a2a2a",
+              "outline-variant": "#5b403e",
+              "secondary-fixed": "#ffdbca",
+              "on-secondary-container": "#4a1c00",
+              "tertiary-container": "#8292aa",
+              "surface-container-highest": "#353534",
+              "on-tertiary-fixed": "#0b1c30",
+              "primary-container": "#ff5451",
+              "surface-variant": "#353534",
+              "inverse-surface": "#e5e2e1",
+              "on-tertiary": "#213145",
+              "outline": "#ab8986",
+              "inverse-primary": "#b91a24",
+              "inverse-on-surface": "#313030",
+              "on-surface": "#e5e2e1",
+              "on-secondary-fixed-variant": "#783200",
+              "on-primary-fixed": "#410004",
+              "surface-tint": "#ffb3ad",
+              "surface-container": "#201f1f",
+              "primary": "#ffb3ad",
+              "error-container": "#93000a",
+              "surface-container-lowest": "#0e0e0e",
+              "on-surface-variant": "#e4beba",
+              "on-primary-fixed-variant": "#930013",
+              "secondary-fixed-dim": "#ffb690",
+              "error": "#ffb4ab",
+              "on-error": "#690005",
+              "primary-fixed-dim": "#ffb3ad",
+              "secondary": "#ffb690",
+              "on-tertiary-fixed-variant": "#38485d",
+              "surface": "#131313",
+              "surface-dim": "#131313",
+              "on-secondary-fixed": "#341100",
+              "on-primary-container": "#5c0008",
+              "tertiary-fixed": "#d3e4fe",
+              "on-background": "#e5e2e1",
+              "on-secondary": "#552100",
+              "tertiary": "#b7c8e1",
+              "secondary-container": "#ec6a06",
+              "on-error-container": "#ffdad6",
+              "on-primary": "#68000a",
+              "surface-container-low": "#1c1b1b",
+              "tertiary-fixed-dim": "#b7c8e1",
+              "on-tertiary-container": "#1a2b3e",
+              "primary-fixed": "#ffdad7"
+            },
+            fontFamily: {
+              "headline": ["Space Grotesk"],
+              "body": ["Inter"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        body {
+            background-color: #131313;
+            color: #e5e2e1;
+            font-family: 'Inter', sans-serif;
+        }
+        .glass-panel {
+            background: rgba(28, 27, 27, 0.7);
+            backdrop-filter: blur(20px);
+        }
+        .step-inactive { opacity: 0.3; filter: grayscale(1); }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen p-4 overflow-hidden">
+<!-- Onboarding Shell: Digital Obsidian Modal -->
+<main class="relative w-full max-w-4xl aspect-[16/10] flex flex-col glass-panel rounded-xl shadow-[0_40px_40px_0_rgba(0,0,0,0.4)] overflow-hidden border border-white/5">
+<!-- Header / Progress Indicator -->
+<header class="flex items-center justify-between px-10 py-8">
+<div class="flex flex-col gap-1">
+<span class="font-headline font-bold text-[#EF4444] tracking-widest text-xs uppercase">Step 2 of 3</span>
+<div class="flex gap-4 mt-2 items-center">
+<div class="flex flex-col gap-1">
+<div class="h-1 w-16 bg-[#EF4444] rounded-full"></div>
+<span class="text-[10px] uppercase tracking-tighter text-[#EF4444]/60 font-bold">Welcome</span>
+</div>
+<div class="flex flex-col gap-1">
+<div class="h-1 w-16 bg-[#EF4444] rounded-full"></div>
+<span class="text-[10px] uppercase tracking-tighter text-[#EF4444] font-bold">STT Config</span>
+</div>
+<div class="flex flex-col gap-1 opacity-30">
+<div class="h-1 w-16 bg-surface-container-high rounded-full"></div>
+<span class="text-[10px] uppercase tracking-tighter font-bold">Permissions &amp; LLM</span>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-3">
+<span class="font-headline font-bold text-lg tracking-tight text-primary">Sayso</span>
+<div class="w-2 h-2 rounded-full bg-primary animate-pulse"></div>
+</div>
+</header>
+<!-- Dynamic Content Canvas -->
+<div class="flex-1 px-10 pb-10 overflow-y-auto no-scrollbar">
+<!-- Step 2: STT Configuration -->
+<section class="max-w-2xl mx-auto py-4">
+<div class="mb-10 text-center">
+<h1 class="font-headline text-4xl font-bold tracking-tight mb-4">Connect Your STT API</h1>
+<p class="text-on-surface-variant font-body text-lg leading-relaxed">
+                    Configure your speech-to-text provider. We support OpenAI Whisper, local instances, or Groq for ultra-low latency.
+                </p>
+</div>
+<div class="grid grid-cols-1 gap-6">
+<!-- Input Group -->
+<div class="space-y-5">
+<!-- Field 1: Endpoint -->
+<div class="space-y-2">
+<label class="font-label text-xs uppercase tracking-[0.05em] text-on-surface-variant ml-1">STT Endpoint URL</label>
+<div class="relative group">
+<input class="w-full bg-surface-container-lowest border-0 rounded-md py-4 px-5 text-on-surface font-body focus:ring-0 focus:bg-surface-container-highest transition-all duration-200" placeholder="https://api.openai.com/v1/audio/transcriptions" type="text"/>
+<div class="absolute left-0 top-0 bottom-0 w-[2px] bg-primary opacity-0 group-focus-within:opacity-100 transition-opacity"></div>
+</div>
+</div>
+<!-- Field 2: Model Name -->
+<div class="space-y-2">
+<label class="font-label text-xs uppercase tracking-[0.05em] text-on-surface-variant ml-1">Model Name</label>
+<div class="relative group">
+<input class="w-full bg-surface-container-lowest border-0 rounded-md py-4 px-5 text-on-surface font-body focus:ring-0 focus:bg-surface-container-highest transition-all duration-200" placeholder="whisper-1" type="text"/>
+<div class="absolute left-0 top-0 bottom-0 w-[2px] bg-primary opacity-0 group-focus-within:opacity-100 transition-opacity"></div>
+</div>
+</div>
+<!-- Field 3: API Key -->
+<div class="space-y-2">
+<label class="font-label text-xs uppercase tracking-[0.05em] text-on-surface-variant ml-1">API Secret Key</label>
+<div class="relative group">
+<input class="w-full bg-surface-container-lowest border-0 rounded-md py-4 px-5 text-on-surface font-body focus:ring-0 focus:bg-surface-container-highest transition-all duration-200" placeholder="sk-••••••••••••••••••••••••" type="password"/>
+<div class="absolute left-0 top-0 bottom-0 w-[2px] bg-primary opacity-0 group-focus-within:opacity-100 transition-opacity"></div>
+<div class="absolute right-4 top-1/2 -translate-y-1/2 text-on-surface-variant">
+<span class="material-symbols-outlined text-sm cursor-pointer hover:text-primary transition-colors">visibility</span>
+</div>
+</div>
+</div>
+<!-- Action: Test Connection -->
+<div class="flex justify-end pt-2">
+<button class="w-full md:w-auto px-8 bg-surface-container-high hover:bg-surface-bright text-on-surface h-[56px] rounded-md transition-all duration-200 flex items-center justify-center gap-2 font-medium">
+<span class="material-symbols-outlined text-lg">sync</span>
+                            Test Connection
+                        </button>
+</div>
+</div>
+<!-- Security Badge -->
+<div class="bg-surface-container-low/50 rounded-lg p-4 flex items-start gap-4 mt-4 border border-white/5">
+<div class="p-2 bg-tertiary/10 rounded-md text-tertiary">
+<span class="material-symbols-outlined" data-icon="security">security</span>
+</div>
+<div>
+<p class="text-xs font-bold font-headline uppercase tracking-widest text-tertiary mb-1">Local Encryption Active</p>
+<p class="text-xs text-on-surface-variant leading-relaxed">Your API keys are stored in a local, AES-256 encrypted vault. No data ever touches our servers.</p>
+</div>
+</div>
+</div>
+</section>
+</div>
+<!-- Footer Actions -->
+<footer class="px-10 py-8 flex items-center justify-between bg-surface-container-low/30 border-t border-white/5">
+<button class="flex items-center gap-2 text-on-surface-variant hover:text-on-surface transition-colors font-medium">
+<span class="material-symbols-outlined">arrow_back</span>
+            Back
+        </button>
+<div class="flex items-center gap-4">
+<button class="bg-primary-container text-on-primary-container px-10 py-3 rounded-md font-bold hover:scale-[1.02] active:scale-95 transition-all shadow-lg shadow-primary-container/20">
+                Continue
+            </button>
+</div>
+</footer>
+</main>
+<!-- Background Elements -->
+<div class="fixed inset-0 -z-10 bg-background overflow-hidden">
+<div class="absolute -top-[20%] -left-[10%] w-[60%] h-[60%] bg-primary/5 blur-[120px] rounded-full"></div>
+<div class="absolute -bottom-[20%] -right-[10%] w-[60%] h-[60%] bg-tertiary/5 blur-[120px] rounded-full"></div>
+</div>
+</body></html>

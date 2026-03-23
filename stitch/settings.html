@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Sayso Settings - Digital Obsidian</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "background": "#131313",
+              "surface-bright": "#393939",
+              "surface-container-high": "#2a2a2a",
+              "outline-variant": "#5b403e",
+              "secondary-fixed": "#ffdbca",
+              "on-secondary-container": "#4a1c00",
+              "tertiary-container": "#8292aa",
+              "surface-container-highest": "#353534",
+              "on-tertiary-fixed": "#0b1c30",
+              "primary-container": "#ff5451",
+              "surface-variant": "#353534",
+              "inverse-surface": "#e5e2e1",
+              "on-tertiary": "#213145",
+              "outline": "#ab8986",
+              "inverse-primary": "#b91a24",
+              "inverse-on-surface": "#313030",
+              "on-surface": "#e5e2e1",
+              "on-secondary-fixed-variant": "#783200",
+              "on-primary-fixed": "#410004",
+              "surface-tint": "#ffb3ad",
+              "surface-container": "#201f1f",
+              "primary": "#ffb3ad",
+              "error-container": "#93000a",
+              "surface-container-lowest": "#0e0e0e",
+              "on-surface-variant": "#e4beba",
+              "on-primary-fixed-variant": "#930013",
+              "secondary-fixed-dim": "#ffb690",
+              "error": "#ffb4ab",
+              "on-error": "#690005",
+              "primary-fixed-dim": "#ffb3ad",
+              "secondary": "#ffb690",
+              "on-tertiary-fixed-variant": "#38485d",
+              "surface": "#131313",
+              "surface-dim": "#131313",
+              "on-secondary-fixed": "#341100",
+              "on-primary-container": "#5c0008",
+              "tertiary-fixed": "#d3e4fe",
+              "on-background": "#e5e2e1",
+              "on-secondary": "#552100",
+              "tertiary": "#b7c8e1",
+              "secondary-container": "#ec6a06",
+              "on-error-container": "#ffdad6",
+              "on-primary": "#68000a",
+              "surface-container-low": "#1c1b1b",
+              "tertiary-fixed-dim": "#b7c8e1",
+              "on-tertiary-container": "#1a2b3e",
+              "primary-fixed": "#ffdad7"
+            },
+            fontFamily: {
+              "headline": ["Space Grotesk"],
+              "body": ["Inter"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; background-color: #131313; color: #e5e2e1; }
+        .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+        .headline-font { font-family: 'Space Grotesk', sans-serif; }
+    </style>
+</head>
+<body class="bg-background text-on-surface min-h-screen">
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-0 h-full flex flex-col p-4 bg-[#1c1b1b] h-full w-64 border-r-0 z-40">
+<div class="mb-10 px-4">
+<h1 class="font-['Space_Grotesk'] font-bold text-[#ffb3ad] uppercase tracking-widest text-xs">Sayso</h1>
+<p class="text-[10px] text-[#393939] font-medium tracking-tight">Digital Obsidian v2.0</p>
+</div>
+<nav class="flex-1">
+<a class="flex items-center gap-3 text-[#393939] hover:text-[#ffb3ad] px-4 py-2 my-1 transition-all hover:bg-[#2a2a2a]/50" href="#">
+<span class="material-symbols-outlined text-lg" data-icon="dashboard">dashboard</span>
+<span class="font-['Inter'] font-medium text-sm antialiased">Dashboard</span>
+</a>
+<a class="flex items-center gap-3 text-[#393939] hover:text-[#ffb3ad] px-4 py-2 my-1 transition-all hover:bg-[#2a2a2a]/50" href="#">
+<span class="material-symbols-outlined text-lg" data-icon="tune">tune</span>
+<span class="font-['Inter'] font-medium text-sm antialiased">Configuration</span>
+</a>
+<a class="flex items-center gap-3 text-[#393939] hover:text-[#ffb3ad] px-4 py-2 my-1 transition-all hover:bg-[#2a2a2a]/50" href="#">
+<span class="material-symbols-outlined text-lg" data-icon="keyboard">keyboard</span>
+<span class="font-['Inter'] font-medium text-sm antialiased">Hotkeys</span>
+</a>
+<a class="flex items-center gap-3 bg-[#2a2a2a] text-[#ffb3ad] rounded-md px-4 py-2 my-1 shadow-[inset_2px_0_0_0_#ffb3ad] cursor-pointer transition-all duration-200" href="#">
+<span class="material-symbols-outlined text-lg" data-icon="settings">settings</span>
+<span class="font-['Inter'] font-medium text-sm antialiased">Settings</span>
+</a>
+</nav>
+<div class="mt-auto px-4 pb-4">
+<div class="flex items-center gap-3 p-3 bg-surface-container rounded-lg">
+<div class="w-2 h-2 rounded-full bg-primary shadow-[0_0_8px_rgba(255,179,173,0.6)]"></div>
+<span class="text-[10px] font-bold tracking-widest text-on-surface-variant uppercase">System Ready</span>
+</div>
+</div>
+</aside>
+<!-- Main Content Canvas -->
+<main class="ml-64 p-12 max-w-5xl">
+<header class="mb-12">
+<h2 class="headline-font text-4xl font-bold tracking-tight text-primary mb-2">Settings</h2>
+<p class="text-on-surface-variant font-body">Configure your local intelligence environment.</p>
+</header>
+<div class="space-y-10">
+<!-- API Configuration Section -->
+<section>
+<div class="flex items-center gap-3 mb-6">
+<span class="material-symbols-outlined text-primary" data-icon="api">api</span>
+<h3 class="headline-font text-xl font-semibold tracking-tight">API Configuration</h3>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+<!-- STT Configuration -->
+<div class="bg-surface-container-low p-6 rounded-xl border-l-2 border-primary/20">
+<label class="block text-[10px] font-bold uppercase tracking-widest text-primary mb-4">Speech-to-Text (STT)</label>
+<div class="space-y-4">
+<div>
+<label class="block text-xs text-on-surface-variant mb-1.5 ml-1">Endpoint URL</label>
+<input class="w-full bg-surface-container-lowest border-none rounded-md px-4 py-2.5 text-sm text-on-surface focus:ring-1 focus:ring-primary transition-all" type="text" value="https://api.openai.com/v1/audio/transcriptions"/>
+</div>
+<div>
+<label class="block text-xs text-on-surface-variant mb-1.5 ml-1">API Key</label>
+<input class="w-full bg-surface-container-lowest border-none rounded-md px-4 py-2.5 text-sm text-on-surface focus:ring-1 focus:ring-primary transition-all" type="password" value="sk-••••••••••••••••"/>
+</div>
+<div>
+<label class="block text-xs text-on-surface-variant mb-1.5 ml-1">Model Name</label>
+<input class="w-full bg-surface-container-lowest border-none rounded-md px-4 py-2.5 text-sm text-on-surface focus:ring-1 focus:ring-primary transition-all" placeholder="whisper-1" type="text" value=""/>
+</div><button class="w-full py-2 bg-surface-container-high hover:bg-surface-bright text-primary text-xs font-bold uppercase tracking-widest rounded-md transition-all active:scale-95">Test Connection</button>
+</div>
+</div>
+<!-- LLM Configuration -->
+<div class="bg-surface-container-low p-6 rounded-xl border-l-2 border-tertiary/20">
+<label class="block text-[10px] font-bold uppercase tracking-widest text-tertiary mb-4">Large Language Model (LLM)</label>
+<div class="space-y-4">
+<div>
+<label class="block text-xs text-on-surface-variant mb-1.5 ml-1">Model Name</label>
+<select class="w-full bg-surface-container-lowest border-none rounded-md px-4 py-2.5 text-sm text-on-surface focus:ring-1 focus:ring-tertiary transition-all appearance-none">
+<option>gpt-4o-mini</option>
+<option>claude-3-5-sonnet</option>
+<option>local-llama-3</option>
+</select>
+</div>
+<div>
+<label class="block text-xs text-on-surface-variant mb-1.5 ml-1">Endpoint URL</label>
+<input class="w-full bg-surface-container-lowest border-none rounded-md px-4 py-2.5 text-sm text-on-surface focus:ring-1 focus:ring-tertiary transition-all" placeholder="https://api.anthropic.com/v1/messages" type="text"/>
+</div>
+<button class="w-full py-2 bg-surface-container-high hover:bg-surface-bright text-tertiary text-xs font-bold uppercase tracking-widest rounded-md transition-all active:scale-95">Verify Model</button>
+</div>
+</div>
+</div>
+</section>
+<!-- Hotkeys Section -->
+<section>
+<div class="flex items-center gap-3 mb-6">
+<span class="material-symbols-outlined text-primary" data-icon="keyboard">keyboard</span>
+<h3 class="headline-font text-xl font-semibold tracking-tight">Hotkeys</h3>
+</div>
+<div class="bg-surface-container-low rounded-xl overflow-hidden">
+<div class="divide-y divide-white/5">
+<!-- Mode A -->
+<div class="p-5 flex items-center justify-between hover:bg-surface-container-high transition-colors">
+<div>
+<p class="text-sm font-medium text-on-surface">Mode A (Plain Typing)</p>
+<p class="text-xs text-on-surface-variant mt-0.5">Direct transcription into active text field.</p>
+</div>
+<div class="bg-surface-container-lowest px-4 py-2 rounded-md border border-white/5 font-mono text-xs text-primary cursor-pointer hover:bg-surface-container">⌥ Space</div>
+</div>
+<!-- Mode B -->
+<div class="p-5 flex items-center justify-between hover:bg-surface-container-high transition-colors">
+<div>
+<p class="text-sm font-medium text-on-surface">Mode B (Type &amp; Enter)</p>
+<p class="text-xs text-on-surface-variant mt-0.5">Transcribes and automatically simulates 'Enter' key.</p>
+</div>
+<div class="bg-surface-container-lowest px-4 py-2 rounded-md border border-white/5 font-mono text-xs text-primary cursor-pointer hover:bg-surface-container">⌥ Enter</div>
+</div>
+<!-- Mode C -->
+<div class="p-5 flex items-center justify-between hover:bg-surface-container-high transition-colors">
+<div>
+<p class="text-sm font-medium text-on-surface">Mode C (Command)</p>
+<p class="text-xs text-on-surface-variant mt-0.5">Trigger AI command processing from current clipboard.</p>
+</div>
+<div class="bg-surface-container-lowest px-4 py-2 rounded-md border border-white/5 font-mono text-xs text-primary cursor-pointer hover:bg-surface-container">⌥ .</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Multi-Section Bento Grid for Toggles -->
+<section class="grid grid-cols-1 md:grid-cols-3 gap-6">
+<!-- Voice-to-Text Options -->
+<div class="bg-surface-container-low p-6 rounded-xl flex flex-col">
+<div class="flex items-center gap-2 mb-4">
+<span class="material-symbols-outlined text-primary text-lg" data-icon="graphic_eq">graphic_eq</span>
+<h4 class="text-xs font-bold uppercase tracking-widest text-on-surface">Voice Options</h4>
+</div>
+<div class="flex items-center justify-between group cursor-pointer">
+<span class="text-sm text-on-surface-variant group-hover:text-on-surface transition-colors">LLM Polishing</span>
+<div class="w-10 h-5 bg-primary-container rounded-full relative transition-all">
+<div class="absolute right-1 top-1 w-3 h-3 bg-on-primary-container rounded-full"></div>
+</div>
+</div>
+<p class="text-[10px] text-on-surface-variant mt-3 leading-relaxed">AI automatically fixes grammar and refines tone during transcription.</p>
+</div>
+<!-- Injection Strategy -->
+<div class="bg-surface-container-low p-6 rounded-xl md:col-span-2">
+<div class="flex items-center gap-2 mb-4">
+<span class="material-symbols-outlined text-primary text-lg" data-icon="terminal">terminal</span>
+<h4 class="text-xs font-bold uppercase tracking-widest text-on-surface">Injection Strategy</h4>
+</div>
+<div class="grid grid-cols-2 gap-6">
+<div class="space-y-4">
+<div class="flex items-center gap-3">
+<div class="w-4 h-4 rounded-full border-2 border-primary flex items-center justify-center">
+<div class="w-1.5 h-1.5 bg-primary rounded-full"></div>
+</div>
+<div>
+<p class="text-sm font-medium">Default Strategy</p>
+<p class="text-[10px] text-on-surface-variant">Keyboard simulation (Native)</p>
+</div>
+</div>
+<div class="flex items-center gap-3 opacity-50">
+<div class="w-4 h-4 rounded-full border-2 border-outline flex items-center justify-center"></div>
+<div>
+<p class="text-sm font-medium">Direct Hook</p>
+<p class="text-[10px] text-on-surface-variant">OS accessibility API</p>
+</div>
+</div>
+</div>
+<div class="p-4 bg-surface-container-highest rounded-lg flex items-start gap-4">
+<div class="w-10 h-5 bg-surface-bright rounded-full relative flex-shrink-0">
+<div class="absolute left-1 top-1 w-3 h-3 bg-on-surface-variant rounded-full"></div>
+</div>
+<div>
+<p class="text-xs font-medium">Fallback Mode</p>
+<p class="text-[10px] text-on-surface-variant mt-1">Automatic clipboard injection for VS Code, Slack, and Electron apps.</p>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- System Settings -->
+<section class="bg-surface-container-low p-6 rounded-xl">
+<div class="flex items-center gap-2 mb-6">
+<span class="material-symbols-outlined text-primary text-lg" data-icon="settings_suggest">settings_suggest</span>
+<h4 class="text-xs font-bold uppercase tracking-widest text-on-surface">System Preferences</h4>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-6">
+<div class="flex items-center justify-between">
+<div>
+<p class="text-sm font-medium">Launch at Login</p>
+<p class="text-xs text-on-surface-variant">Start Sayso automatically on startup</p>
+</div>
+<div class="w-10 h-5 bg-primary-container rounded-full relative">
+<div class="absolute right-1 top-1 w-3 h-3 bg-on-primary-container rounded-full"></div>
+</div>
+</div>
+<div class="flex items-center justify-between">
+<div>
+<p class="text-sm font-medium">Show in Menu Bar</p>
+<p class="text-xs text-on-surface-variant">Keep icon visible in system tray</p>
+</div>
+<div class="w-10 h-5 bg-primary-container rounded-full relative">
+<div class="absolute right-1 top-1 w-3 h-3 bg-on-primary-container rounded-full"></div>
+</div>
+</div>
+</div>
+</section>
+</div>
+<footer class="mt-16 flex justify-end gap-4 border-t border-white/5 pt-8">
+<button class="px-6 py-2.5 rounded-md text-xs font-bold uppercase tracking-widest text-on-surface-variant hover:bg-surface-container-high transition-all">Discard Changes</button>
+<button class="px-8 py-2.5 rounded-md text-xs font-bold uppercase tracking-widest bg-primary-container text-on-primary-container hover:shadow-[0_0_20px_rgba(255,84,81,0.3)] transition-all active:scale-95">Save Configuration</button>
+</footer>
+</main>
+<!-- BottomNavBar (Mobile Only) -->
+<nav class="md:hidden fixed bottom-0 w-full z-50 flex justify-around items-center h-16 px-8 border-t border-white/5 bg-[#131313]/80 backdrop-blur-lg rounded-t-xl shadow-[0_-10px_30px_rgba(0,0,0,0.5)]">
+<a class="flex flex-col items-center justify-center text-[#393939] hover:text-[#ffb3ad] transition-colors active:scale-90" href="#">
+<span class="material-symbols-outlined" data-icon="radio_button_checked">radio_button_checked</span>
+<span class="font-['Inter'] text-[10px] uppercase tracking-[0.05em] mt-1">Status</span>
+</a>
+<a class="flex flex-col items-center justify-center text-[#393939] hover:text-[#ffb3ad] transition-colors active:scale-90" href="#">
+<span class="material-symbols-outlined" data-icon="list_alt">list_alt</span>
+<span class="font-['Inter'] text-[10px] uppercase tracking-[0.05em] mt-1">Logs</span>
+</a>
+<a class="flex flex-col items-center justify-center text-[#ffb3ad] scale-110 active:scale-90" href="#">
+<span class="material-symbols-outlined" data-icon="settings" style="font-variation-settings: 'FILL' 1;">settings</span>
+<span class="font-['Inter'] text-[10px] uppercase tracking-[0.05em] mt-1">Settings</span>
+</a>
+</nav>
+</body></html>

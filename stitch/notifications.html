@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "background": "#131313",
+              "surface-bright": "#393939",
+              "surface-container-high": "#2a2a2a",
+              "outline-variant": "#5b403e",
+              "secondary-fixed": "#ffdbca",
+              "on-secondary-container": "#4a1c00",
+              "tertiary-container": "#8292aa",
+              "surface-container-highest": "#353534",
+              "on-tertiary-fixed": "#0b1c30",
+              "primary-container": "#ff5451",
+              "surface-variant": "#353534",
+              "inverse-surface": "#e5e2e1",
+              "on-tertiary": "#213145",
+              "outline": "#ab8986",
+              "inverse-primary": "#b91a24",
+              "inverse-on-surface": "#313030",
+              "on-surface": "#e5e2e1",
+              "on-secondary-fixed-variant": "#783200",
+              "on-primary-fixed": "#410004",
+              "surface-tint": "#ffb3ad",
+              "surface-container": "#201f1f",
+              "primary": "#ffb3ad",
+              "error-container": "#93000a",
+              "surface-container-low": "#1c1b1b",
+              "tertiary-fixed": "#d3e4fe",
+              "on-background": "#e5e2e1",
+              "on-secondary": "#552100",
+              "tertiary": "#b7c8e1",
+              "secondary-container": "#ec6a06",
+              "on-error-container": "#ffdad6",
+              "on-primary": "#68000a",
+              "surface-container-low": "#1c1b1b",
+              "tertiary-fixed-dim": "#b7c8e1",
+              "on-tertiary-container": "#1a2b3e",
+              "primary-fixed": "#ffdad7"
+            },
+            fontFamily: {
+              "headline": ["Space Grotesk"],
+              "body": ["Inter"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .recording-pulse {
+            box-shadow: 0 0 0 0 rgba(255, 84, 81, 0.4);
+            animation: pulse-red 2s infinite;
+        }
+        @keyframes pulse-red {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 84, 81, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(255, 84, 81, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 84, 81, 0); }
+        }
+        .glass-panel {
+            background: rgba(28, 27, 27, 0.7);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+        }
+    </style>
+</head>
+<body class="bg-background text-on-surface font-body min-h-screen overflow-hidden selection:bg-primary/30">
+<!-- Desktop Simulation Environment -->
+<div class="fixed inset-0 flex flex-col items-center justify-center pointer-events-none opacity-20">
+<h1 class="font-headline font-bold text-9xl tracking-tighter">Sayso</h1>
+</div>
+<!-- Top Menu Bar (OS Level) -->
+<header class="fixed top-0 left-0 right-0 h-8 glass-panel border-b border-white/5 flex items-center justify-between px-4 z-50">
+<div class="flex items-center gap-4">
+<span class="font-headline font-bold text-xs tracking-widest text-primary">SAYSO</span>
+<nav class="flex gap-4">
+<span class="text-[11px] font-medium text-surface-bright">File</span>
+<span class="text-[11px] font-medium text-surface-bright">Edit</span>
+<span class="text-[11px] font-medium text-surface-bright">View</span>
+</nav>
+</div>
+<!-- Status Bar Icon Group -->
+<div class="flex items-center gap-3">
+<div class="flex items-center gap-4 bg-surface-container-high/40 px-2 py-0.5 rounded">
+<!-- Idle State -->
+<div class="group flex items-center gap-1.5 cursor-pointer">
+<span class="material-symbols-outlined text-[16px] text-surface-bright group-hover:text-on-surface transition-colors" data-icon="mic_none">mic_none</span>
+<span class="text-[10px] font-label font-medium uppercase tracking-tighter text-surface-bright">Idle</span>
+</div>
+<div class="w-px h-3 bg-white/10"></div>
+<!-- Active Recording State -->
+<div class="flex items-center gap-2 cursor-pointer">
+<div class="relative flex items-center justify-center">
+<div class="absolute w-2 h-2 bg-primary-container rounded-full recording-pulse"></div>
+<span class="material-symbols-outlined text-[16px] text-primary-container relative z-10" data-icon="mic" style="font-variation-settings: 'FILL' 1;">mic</span>
+</div>
+<span class="text-[10px] font-label font-bold uppercase tracking-widest text-primary">Recording</span>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-surface-bright" data-icon="wifi">wifi</span>
+<span class="text-[11px] font-medium text-on-surface">100%</span>
+</div>
+</div>
+</header>
+<!-- Side Navigation Shell (from JSON mapping) -->
+<aside class="fixed left-0 top-0 h-full w-64 bg-surface-container-low flex flex-col p-4 z-40">
+<div class="mb-8 px-4">
+<h2 class="font-headline font-bold text-primary uppercase tracking-widest text-xs">Sayso</h2>
+<p class="text-[10px] text-surface-bright font-medium mt-1">Digital Obsidian v2.0</p>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center gap-3 bg-surface-container-high text-primary rounded-md px-4 py-2 my-1 shadow-[inset_2px_0_0_0_#ffb3ad]">
+<span class="material-symbols-outlined text-sm" data-icon="dashboard">dashboard</span>
+<span class="font-medium text-sm">Dashboard</span>
+</a>
+<a class="flex items-center gap-3 text-surface-bright hover:text-primary px-4 py-2 my-1 transition-all">
+<span class="material-symbols-outlined text-sm" data-icon="tune">tune</span>
+<span class="font-medium text-sm">Configuration</span>
+</a>
+<a class="flex items-center gap-3 text-surface-bright hover:text-primary px-4 py-2 my-1 transition-all">
+<span class="material-symbols-outlined text-sm" data-icon="keyboard">keyboard</span>
+<span class="font-medium text-sm">Hotkeys</span>
+</a>
+<a class="flex items-center gap-3 text-surface-bright hover:text-primary px-4 py-2 my-1 transition-all">
+<span class="material-symbols-outlined text-sm" data-icon="verified_user">verified_user</span>
+<span class="font-medium text-sm">Security</span>
+</a>
+</nav>
+<div class="mt-auto p-4 bg-surface-container-highest/20 rounded-xl border border-white/5">
+<div class="flex items-center justify-between mb-3">
+<span class="text-[10px] font-label uppercase tracking-widest text-surface-bright">System Status</span>
+<span class="w-2 h-2 rounded-full bg-primary-container"></span>
+</div>
+<button class="w-full bg-primary-container text-on-primary-container font-bold py-2 rounded-md text-sm active:scale-95 transition-transform">
+                Recording
+            </button>
+</div>
+</aside>
+<!-- Main Workspace Content (Mockup of what triggers toasts) -->
+<main class="ml-64 pt-8 p-10 h-screen overflow-y-auto">
+<section class="max-w-4xl mx-auto space-y-8">
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+<!-- Asymmetric Bento Card 1 -->
+<div class="col-span-1 p-8 bg-surface-container-low rounded-2xl border border-white/5 flex flex-col justify-between aspect-video group hover:bg-surface-container-high transition-colors">
+<div>
+<span class="text-[10px] font-label text-primary uppercase tracking-[0.2em]">Voice Processing</span>
+<h3 class="text-2xl font-headline font-bold mt-2">Active Transcription</h3>
+</div>
+<div class="space-y-2">
+<div class="h-1.5 w-full bg-surface-container-highest rounded-full overflow-hidden">
+<div class="h-full w-2/3 bg-primary-container"></div>
+</div>
+<div class="flex justify-between text-[11px] text-surface-bright font-medium">
+<span>LATENCY: 12ms</span>
+<span>ENGINE: RUST_TAURI_V2</span>
+</div>
+</div>
+</div>
+<!-- Bento Card 2 -->
+<div class="col-span-1 p-8 bg-surface-container-low rounded-2xl border border-white/5 aspect-video flex flex-col">
+<span class="text-[10px] font-label text-tertiary uppercase tracking-[0.2em]">Privacy Shield</span>
+<h3 class="text-2xl font-headline font-bold mt-2">Neural Guard Active</h3>
+<p class="text-sm text-surface-bright mt-4 leading-relaxed">System-level protection prevents unauthorized access to the audio driver during active recording sessions.</p>
+</div>
+</div>
+</section>
+</main>
+<!-- TOAST NOTIFICATION SYSTEM (FIXED BOTTOM RIGHT) -->
+<div class="fixed bottom-6 right-6 z-[100] flex flex-col items-end gap-4 max-w-sm pointer-events-none">
+<!-- Execution Result Toast (Small floating window) -->
+<div class="glass-panel w-[320px] rounded-xl border border-white/10 shadow-2xl p-4 pointer-events-auto transform transition-all hover:-translate-y-1">
+<div class="flex items-center justify-between mb-3">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-secondary text-base" data-icon="terminal">terminal</span>
+<span class="text-[10px] font-label font-bold uppercase tracking-widest text-secondary">Execution Result</span>
+</div>
+<span class="text-[9px] font-mono text-surface-bright">0.04s</span>
+</div>
+<div class="bg-surface-container-lowest p-3 rounded font-mono text-[11px] text-on-surface-variant overflow-hidden border-l-2 border-secondary">
+<code class="block text-secondary-fixed-dim">sayso@obsidian:~$ git status</code>
+<code class="block mt-1">On branch main. Nothing to commit, working tree clean.</code>
+</div>
+</div>
+<!-- Security Flag Toast (Orange) -->
+<div class="bg-secondary-container text-on-secondary-container w-[320px] rounded-xl shadow-2xl overflow-hidden pointer-events-auto border border-white/10">
+<div class="flex items-start gap-4 p-4">
+<div class="bg-on-secondary-container/20 p-2 rounded-lg">
+<span class="material-symbols-outlined text-xl" data-icon="security_update_warning" style="font-variation-settings: 'FILL' 1;">security_update_warning</span>
+</div>
+<div class="flex-1">
+<h4 class="font-headline font-bold text-sm tracking-tight leading-none">Security Check Required</h4>
+<p class="text-xs mt-1.5 opacity-90 leading-relaxed font-medium">The command <span class="bg-on-secondary-container/10 px-1 rounded font-mono text-[10px]">rm -rf /</span> was blocked for your safety. Administrator bypass required.</p>
+</div>
+</div>
+<div class="bg-on-secondary-container/5 px-4 py-2 flex justify-end gap-3 border-t border-black/5">
+<button class="text-[10px] font-label font-bold uppercase tracking-widest opacity-60 hover:opacity-100 transition-opacity">Dismiss</button>
+<button class="text-[10px] font-label font-bold uppercase tracking-widest underline decoration-2 underline-offset-4">Authenticate</button>
+</div>
+</div>
+<!-- Success Toast -->
+<div class="glass-panel w-[320px] rounded-xl border-l-4 border-primary shadow-2xl p-4 pointer-events-auto flex items-center gap-4">
+<div class="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-primary text-lg" data-icon="check_circle" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+</div>
+<div class="flex-1">
+<h4 class="font-headline font-bold text-sm tracking-tight leading-none">Command Executed</h4>
+<p class="text-[11px] text-surface-bright mt-1">Deployment to staging initiated successfully.</p>
+</div>
+<button class="text-surface-bright hover:text-on-surface transition-colors">
+<span class="material-symbols-outlined text-base" data-icon="close">close</span>
+</button>
+</div>
+</div>
+<!-- Bottom Navigation Shell (from JSON mapping) -->
+<footer class="fixed bottom-0 w-full z-50 flex justify-around items-center h-16 px-8 border-t border-white/5 bg-[#131313]/80 backdrop-blur-lg md:hidden">
+<button class="flex flex-col items-center justify-center text-[#393939] hover:text-[#ffb3ad] transition-colors active:scale-90 transition-transform duration-150">
+<span class="material-symbols-outlined" data-icon="radio_button_checked">radio_button_checked</span>
+<span class="font-['Inter'] text-[10px] uppercase tracking-[0.05em] mt-1">Status</span>
+</button>
+<button class="flex flex-col items-center justify-center text-[#ffb3ad] scale-110 active:scale-90 transition-transform duration-150">
+<span class="material-symbols-outlined" data-icon="list_alt">list_alt</span>
+<span class="font-['Inter'] text-[10px] uppercase tracking-[0.05em] mt-1">Logs</span>
+</button>
+<button class="flex flex-col items-center justify-center text-[#393939] hover:text-[#ffb3ad] transition-colors active:scale-90 transition-transform duration-150">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span class="font-['Inter'] text-[10px] uppercase tracking-[0.05em] mt-1">Settings</span>
+</button>
+</footer>
+</body></html>
