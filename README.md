@@ -29,6 +29,30 @@ Supports OpenAI Whisper API out of the box. Local Whisper (via whisper.cpp) comi
 
 🚧 Early development
 
+## Quick Start
+
+1. **Download** the latest release from [GitHub Releases](../../releases)
+2. **Install** the app (macOS: drag to Applications, Windows: run installer)
+3. **Configure** STT and LLM API keys on first launch
+4. **Use** the hotkeys to start voice input
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup.
+
+## Documentation
+
+- [DESIGN.md](DESIGN.md) — UI/UX design system
+- [ARCHITECTURE.md](ARCHITECTURE.md) — Technical architecture
+- [CONTRIBUTING.md](CONTRIBUTING.md) — Development guide
+- [SECURITY.md](SECURITY.md) — Security policy
+- [CHANGELOG.md](CHANGELOG.md) — Version history
+- [TODOS.md](TODOS.md) — Roadmap and known issues
+
+## Requirements
+
+- **macOS**: 11.0+ (Big Sur or later)
+- **Windows**: Windows 10 1809+ or Windows 11
+- **API Keys**: OpenAI or compatible STT/LLM API
+
 ## License
 
-MIT
+[MIT](LICENSE)
