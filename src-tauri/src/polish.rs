@@ -11,10 +11,17 @@
 /// - Mode C: polish is always skipped
 use log::{info, warn};
 
-use crate::config::LlmConfig;
+use crate::config::{LlmConfig, VoiceConfig};
 use crate::llm::LlmClient;
 
-const POLISH_SYSTEM_PROMPT: &str = r#"You are a speech-to-text cleanup assistant.
+fn polish_system_prompt(voice: &VoiceConfig) -> String {
+    let output_rule = match voice.output_text_style.as_str() {
+        "spoken_style" => "Preserve the speaker's spoken flavor where natural, including dialect color, but still produce readable written Chinese.",
+        _ => "When the input contains dialect words or regional phrasing, normalize them into clear standard Mandarin written Chinese whenever possible.",
+    };
+
+    format!(
+        r#"You are a speech-to-text cleanup assistant.
 The user just dictated text using a voice keyboard. Clean up the raw transcription.
 
 Rules:
@@ -23,7 +30,11 @@ Rules:
 - Do NOT add greetings or commentary.
 - Return ONLY the cleaned text, nothing else.
 - If the text is already clean, return it unchanged.
-"#;
+- {}
+"#,
+        output_rule
+    )
+}
 
 /// Attempt to polish raw STT text via LLM.
 ///
@@ -32,12 +43,14 @@ Rules:
 pub async fn polish_text(
     client: &LlmClient,
     config: &LlmConfig,
+    voice: &VoiceConfig,
     api_key: Option<&str>,
     raw: &str,
 ) -> PolishResult {
     info!("Polishing {} chars", raw.len());
+    let system_prompt = polish_system_prompt(voice);
 
-    match client.chat(config, api_key, POLISH_SYSTEM_PROMPT, raw, 500, 0.2).await {
+    match client.chat(config, api_key, &system_prompt, raw, 500, 0.2).await {
         Ok(polished) if !polished.is_empty() => {
             info!("Polished: {} → {} chars", raw.len(), polished.len());
             PolishResult::Polished(polished)

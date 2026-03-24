@@ -1,12 +1,29 @@
 // Prevents console window on Windows in release builds
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock, atomic::{AtomicU64, Ordering}, mpsc};
+use std::time::Duration;
 use tauri::{
-    AppHandle, Manager, State, Emitter,
+    ActivationPolicy, AppHandle, Emitter, Manager, State, UserAttentionType,
     menu::{MenuBuilder, MenuItemBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    WindowEvent,
 };
+#[cfg(target_os = "macos")]
+use core_graphics::display::CGDisplay;
+#[cfg(target_os = "macos")]
+use core_graphics::window::{
+    copy_window_info, kCGNullWindowID, kCGWindowBounds, kCGWindowLayer, kCGWindowListExcludeDesktopElements,
+    kCGWindowListOptionOnScreenOnly, kCGWindowName, kCGWindowOwnerPID,
+};
+#[cfg(target_os = "macos")]
+use core_foundation::{
+    base::{CFType, TCFType},
+    dictionary::CFDictionary,
+    number::CFNumber,
+    string::CFString,
+};
+#[cfg(not(target_os = "macos"))]
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use log::{info, warn};
 
@@ -18,6 +35,10 @@ mod fsm;
 mod injector;
 mod intent;
 mod llm;
+#[cfg(target_os = "macos")]
+mod macos_hotkeys;
+#[cfg(target_os = "macos")]
+mod macos_hud;
 mod polish;
 mod safety;
 mod stt;
@@ -41,6 +62,499 @@ pub struct AppState {
     /// Active recording handle (kept alive while recording)
     pub recording_handle: std::sync::Mutex<Option<audio::RecordingHandle>>,
     pub recorder: std::sync::Mutex<audio::AudioRecorder>,
+    pub pending_hold: std::sync::Mutex<Option<PendingHold>>,
+    pub hold_seq: AtomicU64,
+    pub hud_seq: AtomicU64,
+    #[cfg(target_os = "macos")]
+    pub hotkeys: macos_hotkeys::MacHotkeyEngine,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct PendingHold {
+    pub token: u64,
+    pub mode: char,
+    pub started: bool,
+}
+
+const SINGLE_KEY_HOLD_DELAY_MS: u64 = 120;
+
+#[cfg(target_os = "macos")]
+static MAC_APP_STATE: OnceLock<Arc<AppState>> = OnceLock::new();
+
+#[cfg(target_os = "macos")]
+#[derive(Debug, Clone)]
+struct FrontmostWindowInfo {
+    pid: i64,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+}
+
+#[cfg(target_os = "macos")]
+fn validate_hotkeys(cfg: &config::AppConfig) -> Result<(), SaysoError> {
+    macos_hotkeys::validate_config(cfg)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn validate_hotkeys(cfg: &config::AppConfig) -> Result<(), SaysoError> {
+    parse_shortcuts(cfg).map(|_| ())
+}
+
+fn show_main_window(app: &AppHandle, page: &str) {
+    #[cfg(target_os = "macos")]
+    let _ = app.set_activation_policy(ActivationPolicy::Regular);
+
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.show();
+        let _ = win.unminimize();
+        let _ = win.center();
+        #[cfg(target_os = "macos")]
+        let _ = win.set_visible_on_all_workspaces(true);
+        let _ = win.request_user_attention(Some(UserAttentionType::Critical));
+        let _ = win.set_focus();
+        let _ = win.emit("navigate", page);
+    }
+}
+
+fn hide_main_window(app: &AppHandle) {
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.hide();
+    }
+
+    #[cfg(target_os = "macos")]
+    let _ = app.set_activation_policy(ActivationPolicy::Accessory);
+}
+
+fn is_stt_ready(cfg: &config::AppConfig) -> bool {
+    cfg.stt
+        .as_ref()
+        .map(|stt| !stt.endpoint.trim().is_empty() && !stt.model.trim().is_empty())
+        .unwrap_or(false)
+}
+
+fn is_llm_ready(cfg: &config::AppConfig) -> bool {
+    cfg.llm
+        .as_ref()
+        .map(|llm| !llm.endpoint.trim().is_empty() && !llm.model.trim().is_empty())
+        .unwrap_or(false)
+}
+
+fn ui_is_zh(cfg: &config::AppConfig) -> bool {
+    cfg.ui_language
+        .trim()
+        .to_ascii_lowercase()
+        .starts_with("zh")
+}
+
+fn ui_text(cfg: &config::AppConfig, en: &'static str, zh: &'static str) -> String {
+    if ui_is_zh(cfg) {
+        zh.to_string()
+    } else {
+        en.to_string()
+    }
+}
+
+fn stt_hint_prompt(voice: &config::VoiceConfig) -> Option<String> {
+    if !voice.dialect_support_enabled {
+        return None;
+    }
+
+    let profile = match voice.input_variant.trim() {
+        "sichuanese" => "The speaker may use Sichuan dialect or Sichuan-accented Mandarin.",
+        "shanghainese" => "The speaker may use Shanghainese or Shanghai-accented Mandarin.",
+        "henanese" => "The speaker may use Henan dialect or Henan-accented Mandarin.",
+        "guangshan" => "The speaker may use Guangshan speech from Xinyang, Henan, with strong local phrasing and accent.",
+        "mandarin" => "The speaker is primarily using standard Mandarin.",
+        _ => "The speaker may switch between Mandarin and Chinese regional dialects.",
+    };
+
+    Some(format!(
+        "{} Transcribe in Simplified Chinese and favor accurate recognition of regional Chinese words.",
+        profile
+    ))
+}
+
+#[cfg(target_os = "macos")]
+fn frontmost_app_pid() -> Option<i64> {
+    use std::process::Command;
+
+    let script = r#"
+tell application "System Events"
+    try
+        set frontProcess to first application process whose frontmost is true
+        return unix id of frontProcess
+    on error
+        return ""
+    end try
+end tell
+"#;
+
+    let output = Command::new("osascript").arg("-e").arg(script).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    String::from_utf8_lossy(&output.stdout).trim().parse::<i64>().ok()
+}
+
+#[cfg(target_os = "macos")]
+fn frontmost_window_info() -> Option<FrontmostWindowInfo> {
+    let frontmost_pid = frontmost_app_pid()?;
+    let window_info = copy_window_info(
+        kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements,
+        kCGNullWindowID,
+    )?;
+
+    let (key_pid, key_layer, key_bounds, key_name) = unsafe {
+        (
+            kCGWindowOwnerPID as *const _,
+            kCGWindowLayer as *const _,
+            kCGWindowBounds as *const _,
+            kCGWindowName as *const _,
+        )
+    };
+
+    let mut best_frame: Option<FrontmostWindowInfo> = None;
+    let mut best_area = 0.0;
+
+    for entry_ptr in window_info.get_all_values() {
+        let entry = unsafe { CFType::wrap_under_get_rule(entry_ptr as _) };
+        let dict = entry.downcast::<CFDictionary>()?;
+
+        let owner_pid = dict
+            .find(key_pid)
+            .map(|value| unsafe { CFType::wrap_under_get_rule(*value as _) })
+            .and_then(|value| value.downcast::<CFNumber>())
+            .and_then(|value| value.to_i64());
+        if owner_pid != Some(frontmost_pid) {
+            continue;
+        }
+
+        let layer = dict
+            .find(key_layer)
+            .map(|value| unsafe { CFType::wrap_under_get_rule(*value as _) })
+            .and_then(|value| value.downcast::<CFNumber>())
+            .and_then(|value| value.to_i64())
+            .unwrap_or(1);
+        if layer != 0 {
+            continue;
+        }
+
+        let bounds_dict = dict
+            .find(key_bounds)
+            .map(|value| unsafe { CFType::wrap_under_get_rule(*value as _) })
+            .and_then(|value| value.downcast::<CFDictionary>())?;
+        let rect = core_graphics::geometry::CGRect::from_dict_representation(&bounds_dict)?;
+        if rect.is_empty() {
+            continue;
+        }
+
+        let width = rect.size.width;
+        let height = rect.size.height;
+        let area = width * height;
+        let name = dict
+            .find(key_name)
+            .map(|value| unsafe { CFType::wrap_under_get_rule(*value as _) })
+            .and_then(|value| value.downcast::<CFString>())
+            .map(|value| value.to_string())
+            .unwrap_or_default();
+        info!(
+            "HUD(window-cg): candidate pid={} bounds=({}, {}, {}, {}) area={} name={:?}",
+            frontmost_pid,
+            rect.origin.x,
+            rect.origin.y,
+            width,
+            height,
+            area
+            ,
+            name
+        );
+
+        if width < 320.0 || height < 160.0 {
+            continue;
+        }
+
+        if name.trim().is_empty() && width >= 0.95 * 1440.0 && height >= 0.95 * 900.0 {
+            continue;
+        }
+
+        if area <= best_area {
+            continue;
+        }
+
+        best_area = area;
+        best_frame = Some(FrontmostWindowInfo {
+            pid: frontmost_pid,
+            x: rect.origin.x,
+            y: rect.origin.y,
+            width,
+            height,
+        });
+    }
+
+    if let Some(info) = best_frame {
+        info!(
+            "HUD(window-cg): pid={} bounds=({}, {}, {}, {})",
+            info.pid,
+            info.x,
+            info.y,
+            info.width,
+            info.height
+        );
+        return Some(info);
+    }
+
+    None
+}
+
+#[cfg(not(target_os = "macos"))]
+fn frontmost_window_info() -> Option<()> {
+    None
+}
+
+#[cfg(target_os = "macos")]
+fn frontmost_window_frame() -> Option<(f64, f64, f64, f64)> {
+    frontmost_window_info().map(|info| (info.x, info.y, info.width, info.height))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn frontmost_window_frame() -> Option<(f64, f64, f64, f64)> {
+    None
+}
+
+#[cfg(target_os = "macos")]
+fn native_display_for_point(x: f64, y: f64) -> Option<(f64, f64, f64, f64)> {
+    let display_ids = CGDisplay::active_displays().ok()?;
+
+    for (index, display_id) in display_ids.into_iter().enumerate() {
+        let display = CGDisplay::new(display_id);
+        let bounds = display.bounds();
+        let left = bounds.origin.x;
+        let top = bounds.origin.y;
+        let right = left + bounds.size.width;
+        let bottom = top + bounds.size.height;
+        info!(
+            "HUD(native): display[{index}] bounds=({}, {}, {}, {})",
+            left, top, bounds.size.width, bounds.size.height
+        );
+        if x >= left && x < right && y >= top && y < bottom {
+            return Some((left, top, bounds.size.width, bounds.size.height));
+        }
+    }
+
+    None
+}
+
+#[cfg(not(target_os = "macos"))]
+fn native_display_for_point(_x: f64, _y: f64) -> Option<(f64, f64, f64, f64)> {
+    None
+}
+
+fn hud_target_frame(app: &AppHandle) -> Option<(f64, f64, f64, f64)> {
+    let frontmost_frame = frontmost_window_frame();
+    if let Some((window_x, window_y, window_width, window_height)) = frontmost_frame {
+        info!(
+            "HUD(window): frame=({}, {}, {}, {})",
+            window_x,
+            window_y,
+            window_width,
+            window_height
+        );
+        return frontmost_frame;
+    }
+
+    let fallback_cursor = app.cursor_position().ok().map(|cursor| (cursor.x, cursor.y));
+    let anchor = fallback_cursor;
+    let Some((anchor_x, anchor_y)) = anchor else {
+        warn!("HUD: unable to resolve anchor point");
+        return None;
+    };
+
+    let available_monitors = app.available_monitors().ok().unwrap_or_default();
+    if available_monitors.is_empty() {
+        warn!("HUD: no available monitors reported by runtime");
+    } else {
+        for (index, monitor) in available_monitors.iter().enumerate() {
+            let position = monitor.position();
+            let size = monitor.size();
+            info!(
+                "HUD: monitor[{index}] pos=({}, {}) size=({}, {}) scale={}",
+                position.x,
+                position.y,
+                size.width,
+                size.height,
+                monitor.scale_factor()
+            );
+        }
+    }
+
+    if let Some((left, top, width, height)) = native_display_for_point(anchor_x, anchor_y) {
+        info!(
+            "HUD(native): chosen_display bounds=({}, {}, {}, {})",
+            left,
+            top,
+            width,
+            height
+        );
+        return Some((left, top, width, height));
+    }
+
+    let monitor = available_monitors
+        .into_iter()
+        .find(|monitor| {
+            let position = monitor.position();
+            let size = monitor.size();
+            let left = position.x as f64;
+            let top = position.y as f64;
+            let right = left + size.width as f64;
+            let bottom = top + size.height as f64;
+            anchor_x >= left && anchor_x < right && anchor_y >= top && anchor_y < bottom
+        })
+        .or_else(|| app.monitor_from_point(anchor_x, anchor_y).ok().flatten())
+        .or_else(|| app.primary_monitor().ok().flatten());
+
+    let Some(monitor) = monitor else {
+        warn!("HUD: no monitor matched anchor=({}, {})", anchor_x, anchor_y);
+        return None;
+    };
+
+    let monitor_pos = monitor.position();
+    let monitor_size = monitor.size();
+    info!(
+        "HUD: chosen_monitor pos=({}, {}) size=({}, {})",
+        monitor_pos.x,
+        monitor_pos.y,
+        monitor_size.width,
+        monitor_size.height
+    );
+    Some((
+        monitor_pos.x as f64,
+        monitor_pos.y as f64,
+        monitor_size.width as f64,
+        monitor_size.height as f64,
+    ))
+}
+
+fn hide_hud_window(app: &AppHandle, state: &AppState) {
+    state.hud_seq.fetch_add(1, Ordering::SeqCst);
+    let app_handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        #[cfg(target_os = "macos")]
+        {
+            let _ = &app_handle;
+            macos_hud::hide();
+        }
+    });
+}
+
+fn inject_text_on_main_thread(
+    app: &AppHandle,
+    text: String,
+    expected_focus: Option<String>,
+    send_after: bool,
+) -> Result<(), SaysoError> {
+    let (tx, rx) = mpsc::sync_channel(1);
+    let app_handle = app.clone();
+
+    app.run_on_main_thread(move || {
+        let _ = &app_handle;
+        let result = if send_after {
+            injector::inject_text_and_send(&text, expected_focus.as_deref())
+        } else {
+            injector::inject_text(&text, expected_focus.as_deref())
+        };
+        let _ = tx.send(result);
+    })
+    .map_err(|e| SaysoError::InjectorFailed(e.to_string()))?;
+
+    rx.recv()
+        .map_err(|e| SaysoError::InjectorFailed(format!("Main-thread injection failed: {}", e)))?
+}
+
+#[cfg(not(target_os = "macos"))]
+fn parse_shortcuts(cfg: &config::AppConfig) -> Result<Vec<(Shortcut, char, bool)>, SaysoError> {
+    let shortcuts = [
+        (cfg.hotkeys.mode_a.as_str(), 'a'),
+        (cfg.hotkeys.mode_b.as_str(), 'b'),
+        (cfg.hotkeys.mode_c.as_str(), 'c'),
+    ];
+
+    shortcuts
+        .iter()
+        .map(|(shortcut, mode)| {
+            shortcut
+                .parse::<Shortcut>()
+                .map(|parsed| {
+                    let is_single_key = parsed.mods.is_empty();
+                    (parsed, *mode, is_single_key)
+                })
+                .map_err(|e| SaysoError::Other(format!("Invalid shortcut '{}': {}", shortcut, e)))
+        })
+        .collect()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn register_hotkeys(app: &AppHandle, state: Arc<AppState>, cfg: &config::AppConfig) -> Result<(), SaysoError> {
+    let parsed = parse_shortcuts(cfg)?;
+    let shortcut_list: Vec<Shortcut> = parsed.iter().map(|(s, _, _)| *s).collect();
+    let shortcut_map = parsed;
+
+    let _ = app.global_shortcut().unregister_all();
+
+    if shortcut_list.is_empty() {
+        return Err(SaysoError::Other("No hotkeys configured".to_string()));
+    }
+
+    app.global_shortcut()
+        .on_shortcuts(shortcut_list, move |app, shortcut, event| {
+            let (mode, is_single_key) = shortcut_map
+                .iter()
+                .find(|(registered, _, _)| registered == shortcut)
+                .map(|(_, mode, is_single_key)| (*mode, *is_single_key))
+                .unwrap_or(('a', false));
+
+            match event.state() {
+                ShortcutState::Pressed => {
+                    if is_single_key {
+                        on_single_key_press(app, Arc::clone(&state), mode);
+                    } else {
+                        on_hotkey_press(app, Arc::clone(&state), mode);
+                    }
+                }
+                ShortcutState::Released => {
+                    if is_single_key {
+                        on_single_key_release(app, Arc::clone(&state), mode);
+                    } else {
+                        on_hotkey_release(app, Arc::clone(&state), mode);
+                    }
+                }
+            }
+        })
+        .map_err(|e| SaysoError::Other(format!("Failed to register hotkeys: {}", e)))?;
+
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn register_hotkeys(_app: &AppHandle, state: Arc<AppState>, cfg: &config::AppConfig) -> Result<(), SaysoError> {
+    state.hotkeys.update_config(cfg)
+}
+
+fn apply_runtime_config(
+    app: &AppHandle,
+    state: Arc<AppState>,
+    cfg: &config::AppConfig,
+) -> Result<(), SaysoError> {
+    register_hotkeys(app, state, cfg)?;
+
+    if let Some(tray) = app.tray_by_id("main") {
+        tray
+            .set_visible(cfg.show_in_menu_bar)
+            .map_err(|e| SaysoError::Other(format!("Failed to update tray visibility: {}", e)))?;
+    }
+
+    Ok(())
 }
 
 // ─── Tauri commands ──────────────────────────────────────────────────────────
@@ -53,25 +567,26 @@ async fn get_config(state: State<'_, Arc<AppState>>) -> Result<config::AppConfig
 #[tauri::command]
 async fn save_config(
     new_config: config::AppConfig,
+    app: AppHandle,
     state: State<'_, Arc<AppState>>,
 ) -> Result<(), SaysoError> {
-    state.config.update_config(new_config).map_err(SaysoError::from)
-}
+    let old_config = state.config.config();
 
-#[tauri::command]
-async fn save_stt_key(
-    key: String,
-    state: State<'_, Arc<AppState>>,
-) -> Result<(), SaysoError> {
-    state.config.update_stt_key(key).map_err(SaysoError::from)
-}
+    if old_config.hotkeys.mode_a == new_config.hotkeys.mode_a
+        && old_config.hotkeys.mode_b == new_config.hotkeys.mode_b
+        && old_config.hotkeys.mode_c == new_config.hotkeys.mode_c
+        && old_config.show_in_menu_bar == new_config.show_in_menu_bar
+    {
+        state.config.update_config(new_config).map_err(SaysoError::from)?;
+        return Ok(());
+    }
 
-#[tauri::command]
-async fn save_llm_key(
-    key: String,
-    state: State<'_, Arc<AppState>>,
-) -> Result<(), SaysoError> {
-    state.config.update_llm_key(key).map_err(SaysoError::from)
+    validate_hotkeys(&new_config)?;
+    state.config
+        .update_config(new_config.clone())
+        .map_err(SaysoError::from)?;
+    apply_runtime_config(&app, Arc::clone(state.inner()), &new_config)?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -80,10 +595,11 @@ async fn test_stt_connection(
 ) -> Result<(), SaysoError> {
     let config = state.config.config();
     let stt_config = config.stt.ok_or_else(|| SaysoError::ConfigNotFound)?;
-    let api_key = state.config.stt_api_key();
+    let api_key = (!config.stt_key.trim().is_empty()).then_some(config.stt_key.as_str());
+    let hint_prompt = stt_hint_prompt(&config.voice);
     state
         .stt_client
-        .test_connection(&stt_config, api_key.as_deref())
+        .test_connection_with_prompt(&stt_config, api_key, hint_prompt.as_deref())
         .await
 }
 
@@ -93,10 +609,10 @@ async fn test_llm_connection(
 ) -> Result<(), SaysoError> {
     let config = state.config.config();
     let llm_config = config.llm.ok_or_else(|| SaysoError::ConfigNotFound)?;
-    let api_key = state.config.llm_api_key();
+    let api_key = (!config.llm_key.trim().is_empty()).then_some(config.llm_key.as_str());
     state
         .llm_client
-        .test_connection(&llm_config, api_key.as_deref())
+        .test_connection(&llm_config, api_key)
         .await
 }
 
@@ -118,6 +634,38 @@ async fn export_stats_csv(state: State<'_, Arc<AppState>>) -> Result<String, Say
 #[tauri::command]
 async fn get_fsm_state(state: State<'_, Arc<AppState>>) -> Result<String, SaysoError> {
     Ok(state.fsm.state().to_string())
+}
+
+#[tauri::command]
+async fn open_accessibility_settings() -> Result<(), SaysoError> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+            .status()
+            .map_err(|e| SaysoError::Other(format!("Failed to open Accessibility settings: {}", e)))?;
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err(SaysoError::Other("Accessibility settings shortcut is only supported on macOS".to_string()))
+    }
+}
+
+#[tauri::command]
+async fn open_microphone_settings() -> Result<(), SaysoError> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")
+            .status()
+            .map_err(|e| SaysoError::Other(format!("Failed to open Microphone settings: {}", e)))?;
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err(SaysoError::Other("Microphone settings shortcut is only supported on macOS".to_string()))
+    }
 }
 
 // ─── Voice pipeline ──────────────────────────────────────────────────────────
@@ -146,28 +694,36 @@ async fn run_pipeline(
         None => {
             state.fsm.on_stt_error("STT not configured".to_string());
             emit_fsm_state(&app, state.fsm.state());
+            let message = ui_text(
+                &cfg,
+                "STT not configured — open Preferences to set up your API",
+                "STT 未配置，请先在设置中完成配置",
+            );
             emit_toast(
                 &app,
                 "error",
-                "STT not configured — open Preferences to set up your API",
+                &message,
             );
             state.fsm.reset();
+            hide_hud_window(&app, &state);
             emit_fsm_state(&app, FsmState::Idle);
             return;
         }
     };
 
-    let api_key = state.config.stt_api_key();
+    let api_key = (!cfg.stt_key.trim().is_empty()).then_some(cfg.stt_key.as_str());
+    let stt_prompt = stt_hint_prompt(&cfg.voice);
 
     let text = match state
         .stt_client
-        .transcribe(wav_bytes, &stt_config, api_key.as_deref())
+        .transcribe(wav_bytes, &stt_config, api_key, stt_prompt.as_deref())
         .await
     {
         Ok(Some(t)) => t,
         Ok(None) => {
             // Empty result — silent skip
             state.fsm.reset();
+            hide_hud_window(&app, &state);
             emit_fsm_state(&app, FsmState::Idle);
             return;
         }
@@ -176,6 +732,7 @@ async fn run_pipeline(
             emit_fsm_state(&app, state.fsm.state());
             emit_toast(&app, "error", "Connection timeout — please check your network");
             state.fsm.reset();
+            hide_hud_window(&app, &state);
             emit_fsm_state(&app, FsmState::Idle);
             return;
         }
@@ -184,6 +741,7 @@ async fn run_pipeline(
             emit_fsm_state(&app, state.fsm.state());
             emit_toast(&app, "error", &format!("Recognition failed ({})", code));
             state.fsm.reset();
+            hide_hud_window(&app, &state);
             emit_fsm_state(&app, FsmState::Idle);
             return;
         }
@@ -192,6 +750,7 @@ async fn run_pipeline(
             emit_fsm_state(&app, state.fsm.state());
             emit_toast(&app, "error", "Response parse error (malformed response)");
             state.fsm.reset();
+            hide_hud_window(&app, &state);
             emit_fsm_state(&app, FsmState::Idle);
             return;
         }
@@ -200,6 +759,7 @@ async fn run_pipeline(
             emit_fsm_state(&app, state.fsm.state());
             emit_toast(&app, "error", &e.to_string());
             state.fsm.reset();
+            hide_hud_window(&app, &state);
             emit_fsm_state(&app, FsmState::Idle);
             return;
         }
@@ -212,6 +772,7 @@ async fn run_pipeline(
             if !v.safe {
                 emit_toast(&app, "warning", &format!("Rejected: {}", v.reason));
                 state.fsm.reset();
+                hide_hud_window(&app, &state);
                 emit_fsm_state(&app, FsmState::Idle);
                 return;
             }
@@ -219,20 +780,26 @@ async fn run_pipeline(
 
         // LLM intent parse: natural language → shell command
         let llm_config = match cfg.llm {
-            Some(ref c) => c.clone(),
-            None => {
-                emit_toast(&app, "error", "LLM not configured — open Preferences to set up your LLM API");
-                state.fsm.reset();
-                emit_fsm_state(&app, FsmState::Idle);
-                return;
-            }
+        Some(ref c) => c.clone(),
+        None => {
+            let message = ui_text(
+                &cfg,
+                "LLM not configured — open Preferences to set up your LLM API",
+                "LLM 未配置，请先在设置中完成配置",
+            );
+            emit_toast(&app, "error", &message);
+            state.fsm.reset();
+            hide_hud_window(&app, &state);
+            emit_fsm_state(&app, FsmState::Idle);
+            return;
+        }
         };
-        let llm_key = state.config.llm_api_key();
+        let llm_key = (!cfg.llm_key.trim().is_empty()).then_some(cfg.llm_key.as_str());
 
         let intent = match intent::parse_intent(
             &state.llm_client,
             &llm_config,
-            llm_key.as_deref(),
+            llm_key,
             &text,
         )
         .await
@@ -241,12 +808,14 @@ async fn run_pipeline(
             Err(SaysoError::LlmTimeout) => {
                 emit_toast(&app, "error", "LLM timeout — please check your network");
                 state.fsm.reset();
+                hide_hud_window(&app, &state);
                 emit_fsm_state(&app, FsmState::Idle);
                 return;
             }
             Err(e) => {
                 emit_toast(&app, "error", &format!("Intent parse failed: {}", e));
                 state.fsm.reset();
+                hide_hud_window(&app, &state);
                 emit_fsm_state(&app, FsmState::Idle);
                 return;
             }
@@ -255,6 +824,7 @@ async fn run_pipeline(
         if intent.command.is_empty() {
             emit_toast(&app, "warning", &format!("Unclear intent: {}", intent.description));
             state.fsm.reset();
+            hide_hud_window(&app, &state);
             emit_fsm_state(&app, FsmState::Idle);
             return;
         }
@@ -266,6 +836,7 @@ async fn run_pipeline(
             Some(v) if !v.safe => {
                 emit_toast(&app, "warning", &format!("Rejected: {}", v.reason));
                 state.fsm.reset();
+                hide_hud_window(&app, &state);
                 emit_fsm_state(&app, FsmState::Idle);
                 return;
             }
@@ -277,7 +848,7 @@ async fn run_pipeline(
                 match safety::llm_safety_check(
                     &state.llm_client,
                     &llm_config,
-                    llm_key.as_deref(),
+                    llm_key,
                     &intent.command,
                 )
                 .await
@@ -285,6 +856,7 @@ async fn run_pipeline(
                     Ok(v) if !v.safe => {
                         emit_toast(&app, "warning", &format!("Rejected: {}", v.reason));
                         state.fsm.reset();
+                        hide_hud_window(&app, &state);
                         emit_fsm_state(&app, FsmState::Idle);
                         return;
                     }
@@ -293,6 +865,7 @@ async fn run_pipeline(
                         // Fail-closed: LLM unavailable → reject
                         emit_toast(&app, "error", "Rejected: safety check unavailable");
                         state.fsm.reset();
+                        hide_hud_window(&app, &state);
                         emit_fsm_state(&app, FsmState::Idle);
                         return;
                     }
@@ -319,6 +892,7 @@ async fn run_pipeline(
         }
 
         state.fsm.reset();
+        hide_hud_window(&app, &state);
         emit_fsm_state(&app, FsmState::Idle);
         return;
     }
@@ -329,11 +903,11 @@ async fn run_pipeline(
         let llm_cfg = cfg.llm.clone();
         match llm_cfg {
             Some(ref lc) => {
-                let llm_key = state.config.llm_api_key();
                 let result = polish::polish_text(
                     &state.llm_client,
                     lc,
-                    llm_key.as_deref(),
+                    &cfg.voice,
+                    (!cfg.llm_key.trim().is_empty()).then_some(cfg.llm_key.as_str()),
                     &text,
                 )
                 .await;
@@ -351,12 +925,12 @@ async fn run_pipeline(
     state.fsm.on_stt_result();
     emit_fsm_state(&app, FsmState::Injecting);
 
-    let focus = captured_focus.as_deref();
-    let inject_result = if mode == 'b' {
-        injector::inject_text_and_send(&final_text, focus)
-    } else {
-        injector::inject_text(&final_text, focus)
-    };
+    let inject_result = inject_text_on_main_thread(
+        &app,
+        final_text.clone(),
+        captured_focus.clone(),
+        mode == 'b',
+    );
 
     match inject_result {
         Ok(_) => {
@@ -364,6 +938,7 @@ async fn run_pipeline(
             state.stats.record_transcription(speaking_secs, &final_text);
             emit_fsm_state(&app, FsmState::Done);
             state.fsm.reset();
+            hide_hud_window(&app, &state);
             emit_fsm_state(&app, FsmState::Idle);
         }
         Err(SaysoError::InjectorFocusLost) => {
@@ -371,6 +946,7 @@ async fn run_pipeline(
             emit_fsm_state(&app, state.fsm.state());
             emit_toast(&app, "warning", "Focus changed — text was NOT injected");
             state.fsm.reset();
+            hide_hud_window(&app, &state);
             emit_fsm_state(&app, FsmState::Idle);
         }
         Err(e) => {
@@ -378,6 +954,7 @@ async fn run_pipeline(
             emit_fsm_state(&app, state.fsm.state());
             emit_toast(&app, "error", &e.to_string());
             state.fsm.reset();
+            hide_hud_window(&app, &state);
             emit_fsm_state(&app, FsmState::Idle);
         }
     }
@@ -386,13 +963,43 @@ async fn run_pipeline(
 // ─── Hotkey handlers ─────────────────────────────────────────────────────────
 
 fn on_hotkey_press(app: &AppHandle, state: Arc<AppState>, mode: char) {
+    let cfg = state.config.config();
+
+    if !is_stt_ready(&cfg) {
+        let toast = ui_text(&cfg, "STT not configured", "STT 未配置");
+        let hud = ui_text(&cfg, "Set up STT API first", "请先配置 STT");
+        emit_toast(app, "warning", &toast);
+        emit_hud_timed(app, Arc::clone(&state), "warning", &hud, 1800);
+        return;
+    }
+
+    if mode == 'c' && !is_llm_ready(&cfg) {
+        let toast = ui_text(&cfg, "LLM not configured", "LLM 未配置");
+        let hud = ui_text(&cfg, "Set up LLM API first", "请先配置 LLM");
+        emit_toast(app, "warning", &toast);
+        emit_hud_timed(app, Arc::clone(&state), "warning", &hud, 1800);
+        return;
+    }
+
+    if mode != 'c' && !injector::has_text_input_target() {
+        let toast = ui_text(&cfg, "No writable input target", "当前没有可输入目标");
+        let hud = ui_text(&cfg, "Focus a text field first", "请先聚焦输入框");
+        emit_toast(app, "info", &toast);
+        emit_hud_timed(app, Arc::clone(&state), "info", &hud, 1800);
+        return;
+    }
+
     if !state.fsm.on_hotkey_press() {
         // Already processing
-        emit_toast(app, "info", "Processing… please wait");
+        let message = ui_text(&cfg, "Processing… please wait", "处理中，请稍候");
+        emit_toast(app, "info", &message);
+        emit_hud_timed(app, Arc::clone(&state), "info", &message, 1800);
         return;
     }
 
     emit_fsm_state(app, FsmState::Recording);
+    let recording_message = ui_text(&cfg, "Listening…", "听取中…");
+    emit_hud(app, &state, "info", &recording_message);
 
     let mut recorder = state.recorder.lock().unwrap();
     match recorder.start() {
@@ -408,6 +1015,10 @@ fn on_hotkey_press(app: &AppHandle, state: Arc<AppState>, mode: char) {
 }
 
 fn on_hotkey_release(app: &AppHandle, state: Arc<AppState>, mode: char) {
+    if state.fsm.state() != FsmState::Recording {
+        return;
+    }
+
     if !state.fsm.on_hotkey_release() {
         return;
     }
@@ -424,23 +1035,90 @@ fn on_hotkey_release(app: &AppHandle, state: Arc<AppState>, mode: char) {
 
     match wav_result {
         Err(SaysoError::RecordingTooShort) => {
-            emit_toast(app, "info", "No speech detected");
+            let cfg = state.config.config();
+            let message = ui_text(&cfg, "No speech detected", "未检测到语音");
+            emit_toast(app, "info", &message);
             state.fsm.reset();
+            hide_hud_window(app, &state);
         }
         Err(e) => {
             emit_toast(app, "error", &format!("Audio error: {}", e));
             state.fsm.reset();
+            hide_hud_window(app, &state);
         }
         Ok(wav_bytes) => {
             // Capture the frontmost app now (before async STT delay).
             // Passed to run_pipeline so injection can verify focus hasn't changed.
             let focus = injector::capture_focus();
             emit_fsm_state(app, FsmState::SttWaiting);
+            let cfg = state.config.config();
+            let message = if mode == 'c' {
+                ui_text(&cfg, "Processing command…", "处理中…")
+            } else {
+                ui_text(&cfg, "Transcribing…", "处理中…")
+            };
+            emit_hud(app, &state, "info", &message);
             let app_clone = app.clone();
             let state_clone = Arc::clone(&state);
-            tokio::spawn(async move {
+            tauri::async_runtime::spawn(async move {
                 run_pipeline(app_clone, state_clone, mode, wav_bytes, speaking_secs, focus).await;
             });
+        }
+    }
+}
+
+fn on_single_key_press(app: &AppHandle, state: Arc<AppState>, mode: char) {
+    let token = state.hold_seq.fetch_add(1, Ordering::SeqCst) + 1;
+    {
+        let mut pending = state.pending_hold.lock().unwrap();
+        *pending = Some(PendingHold {
+            token,
+            mode,
+            started: false,
+        });
+    }
+
+    let app_clone = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(SINGLE_KEY_HOLD_DELAY_MS)).await;
+
+        let should_start = {
+            let mut pending = state.pending_hold.lock().unwrap();
+            if let Some(current) = pending.as_mut() {
+                if current.token == token && current.mode == mode && !current.started {
+                    current.started = true;
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        };
+
+        if should_start {
+            on_hotkey_press(&app_clone, state, mode);
+        }
+    });
+}
+
+fn on_single_key_release(app: &AppHandle, state: Arc<AppState>, mode: char) {
+    let pending = {
+        let mut pending = state.pending_hold.lock().unwrap();
+        if let Some(current) = *pending {
+            if current.mode == mode {
+                pending.take()
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    };
+
+    if let Some(current) = pending {
+        if current.started {
+            on_hotkey_release(app, state, mode);
         }
     }
 }
@@ -451,6 +1129,46 @@ fn emit_toast(app: &AppHandle, level: &str, message: &str) {
     let _ = app.emit("toast", serde_json::json!({ "level": level, "message": message }));
 }
 
+fn emit_hud(app: &AppHandle, state: &AppState, _level: &str, message: &str) {
+    state.hud_seq.fetch_add(1, Ordering::SeqCst);
+    let target_frame = hud_target_frame(app);
+    let app_handle = app.clone();
+    let message = message.to_string();
+    let _ = app.run_on_main_thread(move || {
+        #[cfg(target_os = "macos")]
+        {
+            let _ = &app_handle;
+            macos_hud::show(&message, target_frame);
+        }
+    });
+}
+
+fn emit_hud_timed(app: &AppHandle, state: Arc<AppState>, level: &str, message: &str, duration_ms: u64) {
+    let token = state.hud_seq.fetch_add(1, Ordering::SeqCst) + 1;
+    let target_frame = hud_target_frame(app);
+    let app_handle = app.clone();
+    let message_owned = message.to_string();
+    let _ = app.run_on_main_thread({
+        let app_handle = app_handle.clone();
+        let message_owned = message_owned.clone();
+        move || {
+            #[cfg(target_os = "macos")]
+            {
+                let _ = &app_handle;
+                let _ = level;
+                macos_hud::show(&message_owned, target_frame);
+            }
+        }
+    });
+
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(duration_ms)).await;
+        if state.hud_seq.load(Ordering::SeqCst) == token {
+            hide_hud_window(&app_handle, &state);
+        }
+    });
+}
+
 fn emit_fsm_state(app: &AppHandle, state: FsmState) {
     let _ = app.emit("fsm_state", state.to_string());
 }
@@ -458,18 +1176,52 @@ fn emit_fsm_state(app: &AppHandle, state: FsmState) {
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 fn main() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_log::Builder::new()
-            .level(log::LevelFilter::Info)
-            .build())
-        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
-        .plugin(tauri_plugin_notification::init())
+    let builder = tauri::Builder::default()
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .level(log::LevelFilter::Info)
+                .build(),
+        );
+
+    #[cfg(not(target_os = "macos"))]
+    let builder = builder.plugin(tauri_plugin_global_shortcut::Builder::new().build());
+
+    builder
         .setup(|app| {
             // Load config + API keys into memory
             let config_state = ConfigState::load_all().unwrap_or_else(|e| {
                 warn!("Failed to load config: {} — using defaults", e);
                 ConfigState::default()
             });
+
+            #[cfg(target_os = "macos")]
+            let hotkeys = macos_hotkeys::MacHotkeyEngine::new(
+                &config_state.config(),
+                {
+                    let app = app.handle().clone();
+                    move |mode, is_single_key| {
+                        if let Some(state) = MAC_APP_STATE.get().cloned() {
+                            if is_single_key {
+                                on_single_key_press(&app, state, mode);
+                            } else {
+                                on_hotkey_press(&app, state, mode);
+                            }
+                        }
+                    }
+                },
+                {
+                    let app = app.handle().clone();
+                    move |mode, is_single_key| {
+                        if let Some(state) = MAC_APP_STATE.get().cloned() {
+                            if is_single_key {
+                                on_single_key_release(&app, state, mode);
+                            } else {
+                                on_hotkey_release(&app, state, mode);
+                            }
+                        }
+                    }
+                },
+            )?;
 
             let app_state = Arc::new(AppState {
                 config: config_state.clone(),
@@ -479,9 +1231,16 @@ fn main() {
                 llm_client: LlmClient::new(),
                 recording_handle: std::sync::Mutex::new(None),
                 recorder: std::sync::Mutex::new(audio::AudioRecorder::new()),
+                pending_hold: std::sync::Mutex::new(None),
+                hold_seq: AtomicU64::new(0),
+                hud_seq: AtomicU64::new(0),
+                #[cfg(target_os = "macos")]
+                hotkeys,
             });
 
             app.manage(Arc::clone(&app_state));
+            #[cfg(target_os = "macos")]
+            let _ = MAC_APP_STATE.set(Arc::clone(&app_state));
 
             // ── System tray ──
             let quit = MenuItemBuilder::with_id("quit", "Quit Sayso").build(app)?;
@@ -491,92 +1250,54 @@ fn main() {
                 .items(&[&preferences, &stats_item, &quit])
                 .build()?;
 
-            let _tray = TrayIconBuilder::new()
+            let _tray = TrayIconBuilder::with_id("main")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(move |app, event| match event.id.as_ref() {
                     "quit" => app.exit(0),
-                    "preferences" => {
-                        if let Some(win) = app.get_webview_window("main") {
-                            let _ = win.show();
-                            let _ = win.set_focus();
-                            let _ = win.emit("navigate", "preferences");
-                        }
-                    }
-                    "stats" => {
-                        if let Some(win) = app.get_webview_window("main") {
-                            let _ = win.show();
-                            let _ = win.set_focus();
-                            let _ = win.emit("navigate", "statistics");
-                        }
-                    }
+                    "preferences" => show_main_window(app, "preferences"),
+                    "stats" => show_main_window(app, "statistics"),
                     _ => {}
                 })
-                .on_tray_icon_event(|_tray, event| {
+                .on_tray_icon_event(|tray, event| {
                     if let TrayIconEvent::Click {
                         button: MouseButton::Left,
                         button_state: MouseButtonState::Up,
                         ..
                     } = event
                     {
-                        // Left-click: no-op (menu opens on right-click)
+                        show_main_window(&tray.app_handle(), "preferences");
                     }
                 })
                 .build(app)?;
 
+            if !app_state.config.config().show_in_menu_bar {
+                if let Some(tray) = app.tray_by_id("main") {
+                    let _ = tray.set_visible(false);
+                }
+            }
+
+            if let Some(main_window) = app.get_webview_window("main") {
+                let app_handle = app.handle().clone();
+                main_window.on_window_event(move |event| {
+                    if let WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        hide_main_window(&app_handle);
+                    }
+                });
+            }
+
             // ── Register global hotkeys ──
             let cfg = app_state.config.config();
-            let shortcuts: Vec<(String, char)> = vec![
-                (cfg.hotkeys.mode_a.clone(), 'a'),
-                (cfg.hotkeys.mode_b.clone(), 'b'),
-                (cfg.hotkeys.mode_c.clone(), 'c'),
-            ];
-
-            let state_for_shortcuts = Arc::clone(&app_state);
-
-            // Parse shortcut strings into Shortcut objects, skipping invalid ones
-            let parsed: Vec<(Shortcut, char)> = shortcuts
-                .iter()
-                .filter_map(|(s, m)| s.parse::<Shortcut>().ok().map(|sh| (sh, *m)))
-                .collect();
-
-            let shortcut_list: Vec<Shortcut> = parsed.iter().map(|(s, _)| s.clone()).collect();
-            let shortcut_map = parsed.clone();
-
-            if shortcut_list.is_empty() {
-                warn!("No valid hotkeys configured — voice input will not be available");
-            } else if let Err(e) = app.global_shortcut().on_shortcuts(
-                shortcut_list,
-                move |app, shortcut, event| {
-                    let mode = shortcut_map
-                        .iter()
-                        .find(|(s, _)| s == shortcut)
-                        .map(|(_, m)| *m)
-                        .unwrap_or('a');
-
-                    match event.state() {
-                        ShortcutState::Pressed => {
-                            on_hotkey_press(app, Arc::clone(&state_for_shortcuts), mode);
-                        }
-                        ShortcutState::Released => {
-                            on_hotkey_release(app, Arc::clone(&state_for_shortcuts), mode);
-                        }
-                    }
-                },
-            ) {
+            if let Err(e) = register_hotkeys(app.handle(), Arc::clone(&app_state), &cfg) {
                 warn!("Failed to register hotkeys: {}", e);
             } else {
-                for (s, _) in &shortcuts {
-                    info!("Registered hotkey: {}", s);
-                }
+                info!("Registered hotkeys from config");
             }
 
             // Show preferences on first run
             if app_state.config.config().first_run {
-                if let Some(win) = app.get_webview_window("main") {
-                    let _ = win.show();
-                    let _ = win.emit("navigate", "onboarding");
-                }
+                show_main_window(app.handle(), "onboarding");
             }
 
             Ok(())
@@ -584,10 +1305,10 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             get_config,
             save_config,
-            save_stt_key,
-            save_llm_key,
             test_stt_connection,
             test_llm_connection,
+            open_accessibility_settings,
+            open_microphone_settings,
             get_stats,
             reset_stats,
             export_stats_csv,

@@ -14,12 +14,12 @@
       {
         "label": "main",
         "title": "Sayso — Preferences",
-        "width": 860,
-        "height": 640,
-        "minWidth": 800,
-        "minHeight": 600,
+        "width": 1136,
+        "height": 715,
+        "minWidth": 1000,
+        "minHeight": 700,
         "resizable": true,
-        "visible": false,
+        "visible": true,
         "decorations": true,
         "center": true,
         "theme": "Dark"

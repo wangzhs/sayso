@@ -16,6 +16,11 @@ use std::time::Duration;
 use crate::error::SaysoError;
 use crate::config::ELECTRON_APP_BUNDLE_IDS;
 
+const RELAXED_TEXT_TARGET_BUNDLE_IDS: &[&str] = &[
+    "com.tencent.xinWeChat",
+    "com.tencent.WeChat",
+];
+
 /// Capture the bundle ID of the currently focused application (macOS only).
 ///
 /// Called at hotkey-release time; the result is passed down to inject_text so
@@ -29,6 +34,17 @@ pub fn capture_focus() -> Option<String> {
     #[cfg(not(target_os = "macos"))]
     {
         None
+    }
+}
+
+pub fn has_text_input_target() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        macos_has_text_input_target()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        true
     }
 }
 
@@ -154,6 +170,59 @@ fn frontmost_bundle_id() -> Option<String> {
         }
     }
     None
+}
+
+#[cfg(target_os = "macos")]
+fn macos_has_text_input_target() -> bool {
+    use std::process::Command;
+
+    if let Some(bundle_id) = frontmost_bundle_id() {
+        if RELAXED_TEXT_TARGET_BUNDLE_IDS.contains(&bundle_id.as_str()) {
+            return true;
+        }
+    }
+
+    let script = r#"
+tell application "System Events"
+    try
+        set frontProcess to first application process whose frontmost is true
+        set focusedElement to value of attribute "AXFocusedUIElement" of frontProcess
+
+        set roleValue to ""
+        try
+            set roleValue to value of attribute "AXRole" of focusedElement
+        end try
+
+        set editableValue to false
+        try
+            set editableValue to value of attribute "AXEditable" of focusedElement
+        end try
+
+        if editableValue is true then
+            return "true"
+        end if
+
+        if roleValue is in {"AXTextField", "AXTextArea", "AXSearchField", "AXComboBox"} then
+            return "true"
+        end if
+
+        return "false"
+    on error
+        return "false"
+    end try
+end tell
+"#;
+
+    let output = match Command::new("osascript").arg("-e").arg(script).output() {
+        Ok(output) => output,
+        Err(_) => return false,
+    };
+
+    if !output.status.success() {
+        return false;
+    }
+
+    String::from_utf8_lossy(&output.stdout).trim() == "true"
 }
 
 #[cfg(test)]

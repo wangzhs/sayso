@@ -44,15 +44,20 @@ impl SttClient {
         wav_bytes: Vec<u8>,
         config: &SttConfig,
         api_key: Option<&str>,
+        hint_prompt: Option<&str>,
     ) -> Result<Option<String>, SaysoError> {
         let part = multipart::Part::bytes(wav_bytes)
             .file_name("audio.wav")
             .mime_str("audio/wav")
             .map_err(|e| SaysoError::Other(e.to_string()))?;
 
-        let form = multipart::Form::new()
+        let mut form = multipart::Form::new()
             .part("file", part)
             .text("model", config.model.clone());
+
+        if let Some(prompt) = hint_prompt.map(str::trim).filter(|value| !value.is_empty()) {
+            form = form.text("prompt", prompt.to_string());
+        }
 
         let mut req = self
             .client
@@ -110,7 +115,24 @@ impl SttClient {
         let wav = crate::audio::encode_wav_pub(&silence_samples, 16000)
             .map_err(|e| SaysoError::Other(e.to_string()))?;
 
-        match self.transcribe(wav, config, api_key).await {
+        match self.transcribe(wav, config, api_key, None).await {
+            Ok(_) => Ok(()),
+            Err(SaysoError::SttNoSpeech) => Ok(()), // empty result = API is working
+            Err(e) => Err(e),
+        }
+    }
+
+    pub async fn test_connection_with_prompt(
+        &self,
+        config: &SttConfig,
+        api_key: Option<&str>,
+        hint_prompt: Option<&str>,
+    ) -> Result<(), SaysoError> {
+        let silence_samples = vec![0i16; 4800];
+        let wav = crate::audio::encode_wav_pub(&silence_samples, 16000)
+            .map_err(|e| SaysoError::Other(e.to_string()))?;
+
+        match self.transcribe(wav, config, api_key, hint_prompt).await {
             Ok(_) => Ok(()),
             Err(SaysoError::SttNoSpeech) => Ok(()), // empty result = API is working
             Err(e) => Err(e),
@@ -134,7 +156,7 @@ mod tests {
             endpoint: "http://10.255.255.1/audio/transcriptions".to_string(),
             model: "whisper-1".to_string(),
         };
-        let result = stt.transcribe(vec![0u8; 100], &cfg, None).await;
+        let result = stt.transcribe(vec![0u8; 100], &cfg, None, None).await;
         assert!(matches!(result, Err(SaysoError::SttTimeout)));
     }
 }

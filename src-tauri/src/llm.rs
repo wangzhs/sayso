@@ -14,6 +14,22 @@ use crate::error::SaysoError;
 
 const LLM_TIMEOUT_SECS: u64 = 15;
 
+fn strip_think_blocks(input: &str) -> String {
+    let mut output = input.to_string();
+
+    while let Some(start) = output.find("<think>") {
+        if let Some(end_rel) = output[start + "<think>".len()..].find("</think>") {
+            let end = start + "<think>".len() + end_rel + "</think>".len();
+            output.replace_range(start..end, "");
+        } else {
+            output.replace_range(start.., "");
+            break;
+        }
+    }
+
+    output
+}
+
 #[derive(Serialize)]
 struct ChatMessage {
     role: String,
@@ -57,8 +73,7 @@ impl LlmClient {
         Self { client }
     }
 
-    /// Send a chat completion request. Returns the assistant's response text.
-    pub async fn chat(
+    async fn send_chat_request(
         &self,
         config: &LlmConfig,
         api_key: Option<&str>,
@@ -66,7 +81,9 @@ impl LlmClient {
         user: &str,
         max_tokens: u32,
         temperature: f32,
-    ) -> Result<String, SaysoError> {
+    ) -> Result<ChatResponse, SaysoError> {
+        info!("LLM request endpoint={} model={}", config.endpoint, config.model);
+
         let request = ChatRequest {
             model: config.model.clone(),
             messages: vec![
@@ -98,20 +115,39 @@ impl LlmClient {
 
         let status = resp.status().as_u16();
         if !resp.status().is_success() {
-            warn!("LLM API returned {}", status);
+            let error_body = resp
+                .text()
+                .await
+                .unwrap_or_else(|_| "<failed to read error body>".to_string());
+            warn!("LLM API returned {} body={}", status, error_body);
             return Err(SaysoError::LlmApiError(status));
         }
 
-        let body: ChatResponse = resp.json().await.map_err(|e| {
+        resp.json().await.map_err(|e| {
             warn!("LLM response parse error: {}", e);
             SaysoError::LlmMalformedResponse
-        })?;
+        })
+    }
+
+    /// Send a chat completion request. Returns the assistant's response text.
+    pub async fn chat(
+        &self,
+        config: &LlmConfig,
+        api_key: Option<&str>,
+        system: &str,
+        user: &str,
+        max_tokens: u32,
+        temperature: f32,
+    ) -> Result<String, SaysoError> {
+        let body = self
+            .send_chat_request(config, api_key, system, user, max_tokens, temperature)
+            .await?;
 
         let content = body
             .choices
             .into_iter()
             .next()
-            .map(|c| c.message.content.trim().to_string())
+            .map(|c| strip_think_blocks(&c.message.content).trim().to_string())
             .unwrap_or_default();
 
         if content.is_empty() {
@@ -131,7 +167,23 @@ impl LlmClient {
         config: &LlmConfig,
         api_key: Option<&str>,
     ) -> Result<(), SaysoError> {
-        self.chat(config, api_key, "You are a test.", "ping", 5, 0.0).await.map(|_| ())
+        let body = self
+            .send_chat_request(config, api_key, "You are a test.", "Reply with pong.", 32, 0.0)
+            .await?;
+
+        let raw = body
+            .choices
+            .into_iter()
+            .next()
+            .map(|c| c.message.content.trim().to_string())
+            .unwrap_or_default();
+
+        if raw.is_empty() {
+            warn!("LLM test connection returned empty raw content");
+            return Err(SaysoError::LlmMalformedResponse);
+        }
+
+        Ok(())
     }
 }
 
@@ -139,6 +191,13 @@ impl LlmClient {
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    #[test]
+    fn test_strip_think_blocks() {
+        assert_eq!(strip_think_blocks("<think>hidden</think>hello"), "hello");
+        assert_eq!(strip_think_blocks("a<think>hidden</think>b"), "ab");
+        assert_eq!(strip_think_blocks("<think>hidden"), "");
+    }
 
     #[tokio::test]
     async fn test_llm_timeout_returns_error() {
