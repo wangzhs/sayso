@@ -9,3 +9,5 @@ target/
 .idea/
 .vscode/
 .gstack/
+.groq_*
+groq_test.wav
